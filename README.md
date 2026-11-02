@@ -27,8 +27,14 @@ npm.cmd run build
 npm.cmd run preview
 ```
 
-## Deploy to GitHub Pages
+## Deploy to Vercel
 
-Build the static site with `npm.cmd run build` and publish the generated `dist` directory using your preferred static hosting provider. If the site is hosted below a repository subpath, set Vite's `base` option to that path before building.
+1. Sign in to [Vercel](https://vercel.com/) and choose **Add New → Project**.
+2. Connect your GitHub account if prompted, then import `ibrahimjlidi/NovaStore`.
+3. Keep the project root as `./` and framework preset as **Vite**.
+4. Use `npm run build` for the build command and `dist` for the output directory.
+5. Select **Deploy**. Vercel will build the project and provide a public URL.
+
+The repository includes `vercel.json` with an SPA fallback for client-side routes. Future pushes to `main` will trigger Vercel deployments after the Git integration is connected.
 
 All demo data is stored in browser memory and resets when the page is reloaded. No backend is required.
