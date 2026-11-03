@@ -111,4 +111,35 @@ npm.cmd run build
 npm.cmd audit
 ```
 
-Database-backed flows require a configured PostgreSQL database. The automated test suite covers movement balance rules and CSV preview validation.
+### End-to-end tests
+
+Unit tests run with `npm.cmd test:unit` and need no database. API and browser tests use Playwright and require a separate, disposable PostgreSQL database; the E2E setup creates a uniquely named test store and removes only that store after the run. Never point `E2E_DATABASE_URL` at production or a database containing data you need.
+
+For an empty database, the E2E setup applies the normal migrations. For a Neon schema-only branch, add `E2E_SCHEMA_ONLY=true`; setup first verifies the expected current schema, then records the migrations already represented by that schema. This avoids applying table-creation migrations a second time and does not copy production rows.
+
+Create a private `.env.e2e` file in the repository root with a dedicated database URL:
+
+```dotenv
+E2E_DATABASE_URL=postgresql://user:password@host/database?sslmode=require
+E2E_SCHEMA_ONLY=true
+```
+
+Alternatively, set `E2E_DATABASE_URL` in the current PowerShell session. The Playwright config refuses to start if the URL matches `DATABASE_URL` from the process environment, `.env.local`, or `.env`; it does not fall back to `DATABASE_URL`. `.env.e2e` is ignored by Git.
+
+Install the Playwright browser once, then run all API and browser workflows:
+
+```powershell
+npx.cmd playwright install chromium
+npm.cmd run test:e2e
+```
+
+The test runner starts an API and Vite server against the E2E database, disables email delivery, and tests sign-in, role permissions, product and stock workflows, suppliers and purchase orders, imports, reports, and team account links. Playwright reports and traces are saved under the ignored `playwright-report` and `test-results` directories. For interactive debugging, use `npm.cmd run test:e2e:ui`.
+
+Run the complete local checks with:
+
+```powershell
+npm.cmd run test:unit
+npm.cmd run lint
+npm.cmd run build
+npm.cmd run test:e2e
+```
