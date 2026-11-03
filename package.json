@@ -16,6 +16,8 @@
   },
   "dependencies": {
     "@auth/express": "^0.12.3",
+    "@neon/config": "^1.10.0",
+    "@neon/env": "^1.6.8",
     "bcryptjs": "^3.0.3",
     "csv-parse": "^7.0.3",
     "dotenv": "^16.5.0",
