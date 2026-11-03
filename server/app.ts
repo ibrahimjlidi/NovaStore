@@ -28,6 +28,7 @@ import {
   productInput,
   roleInput,
   supplierInput,
+  teamMemberStatusInput,
 } from './validation.js'
 
 const app = express()
@@ -547,7 +548,8 @@ api.get('/reports/inventory', reportReaders, async (request: AuthenticatedReques
 
 api.get('/team', admin, async (request: AuthenticatedRequest, response) => {
   const result = await getPool().query(
-    `SELECT id, email, role, created_at FROM store_users WHERE store_id = $1 ORDER BY created_at`,
+    `SELECT id, email, role, created_at, disabled_at
+     FROM store_users WHERE store_id = $1 ORDER BY created_at`,
     [request.user!.store_id],
   )
   const invitations = await getPool().query(
@@ -573,13 +575,81 @@ api.patch('/team/:id/role', admin, async (request: AuthenticatedRequest, respons
   const input = parseInput(roleInput, request.body)
   const userId = String(request.params.id)
   if (userId === request.user!.id) throw new HttpError(409, 'You cannot change your own role.', 'self_role_change')
-  const result = await getPool().query(
-    `UPDATE store_users SET role = $3 WHERE id = $1 AND store_id = $2
-     RETURNING id, email, role, created_at`,
-    [userId, request.user!.store_id, input.role],
+  const updated = await inTransaction(async (client) => {
+    await client.query('SELECT id FROM stores WHERE id = $1 FOR UPDATE', [request.user!.store_id])
+    const member = await client.query(
+      'SELECT id, role, disabled_at FROM store_users WHERE id = $1 AND store_id = $2 FOR UPDATE',
+      [userId, request.user!.store_id],
+    )
+    if (!member.rowCount) throw new HttpError(404, 'Team member not found.', 'not_found')
+    if (member.rows[0].role === 'admin' && input.role !== 'admin' && !member.rows[0].disabled_at) {
+      const activeAdmins = await client.query(
+        `SELECT COUNT(*)::int AS count FROM store_users
+         WHERE store_id = $1 AND role = 'admin' AND disabled_at IS NULL`,
+        [request.user!.store_id],
+      )
+      if (activeAdmins.rows[0].count <= 1) {
+        throw new HttpError(409, 'The store must have at least one active administrator.', 'last_active_admin')
+      }
+    }
+    const result = await client.query(
+      `UPDATE store_users SET role = $3 WHERE id = $1 AND store_id = $2
+       RETURNING id, email, role, created_at, disabled_at`,
+      [userId, request.user!.store_id, input.role],
+    )
+    return result.rows[0]
+  })
+  response.json(updated)
+})
+
+async function setTeamMemberActive(userId: string, storeId: string, currentUserId: string, isActive: boolean) {
+  if (!isActive && userId === currentUserId) {
+    throw new HttpError(409, 'You cannot deactivate your own account.', 'self_deactivation')
+  }
+  return inTransaction(async (client) => {
+    await client.query('SELECT id FROM stores WHERE id = $1 FOR UPDATE', [storeId])
+    const member = await client.query(
+      'SELECT id, role, disabled_at FROM store_users WHERE id = $1 AND store_id = $2 FOR UPDATE',
+      [userId, storeId],
+    )
+    if (!member.rowCount) throw new HttpError(404, 'Team member not found.', 'not_found')
+    const currentlyActive = !member.rows[0].disabled_at
+    if (currentlyActive === isActive) return member.rows[0]
+    if (!isActive && member.rows[0].role === 'admin') {
+      const activeAdmins = await client.query(
+        `SELECT COUNT(*)::int AS count FROM store_users
+         WHERE store_id = $1 AND role = 'admin' AND disabled_at IS NULL`,
+        [storeId],
+      )
+      if (activeAdmins.rows[0].count <= 1) {
+        throw new HttpError(409, 'The store must have at least one active administrator.', 'last_active_admin')
+      }
+    }
+    const result = await client.query(
+      `UPDATE store_users SET disabled_at = CASE WHEN $3 THEN NULL ELSE now() END,
+         auth_version = auth_version + 1
+       WHERE id = $1 AND store_id = $2
+       RETURNING id, email, role, created_at, disabled_at`,
+      [userId, storeId, isActive],
+    )
+    return result.rows[0]
+  })
+}
+
+api.delete('/team/:id', admin, async (request: AuthenticatedRequest, response) => {
+  await setTeamMemberActive(String(request.params.id), request.user!.store_id, request.user!.id, false)
+  response.status(204).end()
+})
+
+api.patch('/team/:id/status', admin, async (request: AuthenticatedRequest, response) => {
+  const input = parseInput(teamMemberStatusInput, request.body)
+  const member = await setTeamMemberActive(
+    String(request.params.id),
+    request.user!.store_id,
+    request.user!.id,
+    input.is_active,
   )
-  if (!result.rowCount) throw new HttpError(404, 'Team member not found.', 'not_found')
-  response.json(result.rows[0])
+  response.json(member)
 })
 
 api.post('/import/preview', inventoryUsers, (request: AuthenticatedRequest, response) => {

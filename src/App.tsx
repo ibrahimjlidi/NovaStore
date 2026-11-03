@@ -146,7 +146,7 @@ interface PurchaseOrder {
 }
 
 interface TeamData {
-  users: Array<{ id: string; email: string; role: Role; created_at: string }>
+  users: Array<{ id: string; email: string; role: Role; created_at: string; disabled_at: string | null }>
   invitations: Array<{ id: string; email: string; role: Role; status: string; created_at: string }>
 }
 
@@ -279,6 +279,10 @@ const copy = {
     role: 'الدور', admin: 'مدير', storekeeper: 'أمين مخزن', viewer: 'مشاهد', invite: 'دعوة مستخدم',
     inviteMember: 'إرسال دعوة', accessMatrix: 'صلاحيات الأدوار', page: 'الصفحة', allowed: 'مسموح', restricted: 'غير مسموح',
     pendingInvitations: 'الدعوات المعلقة', noTeam: 'لا يوجد أعضاء بعد.', roleUpdated: 'تم تحديث الدور.',
+    memberStatus: 'حالة الحساب', activeMember: 'نشط', disabledMember: 'معطّل',
+    deactivateMember: 'تعطيل الحساب', reactivateMember: 'إعادة تفعيل الحساب',
+    confirmDeactivateMember: 'تعطيل حساب هذا المستخدم؟ سيتم إنهاء جلساته مع الاحتفاظ بسجل نشاطه.',
+    memberDeactivated: 'تم تعطيل الحساب.', memberReactivated: 'تمت إعادة تفعيل الحساب.',
     importCsv: 'استيراد CSV', uploadCsv: 'اختر ملف CSV', previewImport: 'معاينة الاستيراد', commitImport: 'تأكيد الاستيراد',
     importSummary: 'ملخص الاستيراد', rows: 'صفوف', openingUnits: 'وحدات الرصيد الافتتاحي', importHelp: 'استخدم قالب CSV الموجود في مجلد imports.',
     loading: 'جارٍ تحميل البيانات...', loadError: 'تعذر تحميل البيانات', retry: 'إعادة المحاولة', signIn: 'تسجيل الدخول',
@@ -333,6 +337,10 @@ const copy = {
     role: 'Rôle', admin: 'Administrateur', storekeeper: 'Magasinier', viewer: 'Lecteur', invite: 'Inviter un membre',
     inviteMember: 'Envoyer l’invitation', accessMatrix: 'Accès par rôle', page: 'Page', allowed: 'Autorisé', restricted: 'Refusé',
     pendingInvitations: 'Invitations en attente', noTeam: 'Aucun membre.', roleUpdated: 'Rôle mis à jour.',
+    memberStatus: 'État du compte', activeMember: 'Actif', disabledMember: 'Désactivé',
+    deactivateMember: 'Désactiver', reactivateMember: 'Réactiver',
+    confirmDeactivateMember: 'Désactiver ce compte ? Ses sessions seront révoquées, tout en conservant son historique.',
+    memberDeactivated: 'Compte désactivé.', memberReactivated: 'Compte réactivé.',
     importCsv: 'Importer CSV', uploadCsv: 'Choisir un fichier CSV', previewImport: 'Prévisualiser', commitImport: 'Confirmer l’import',
     importSummary: 'Résumé de l’import', rows: 'lignes', openingUnits: 'Unités de stock initial', importHelp: 'Utilisez le modèle CSV du dossier imports.',
     loading: 'Chargement des données…', loadError: 'Impossible de charger les données', retry: 'Réessayer', signIn: 'Connexion',
@@ -1009,6 +1017,17 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
     }), t('roleUpdated'))
   }
 
+  async function setTeamMemberActive(member: TeamData['users'][number], isActive: boolean) {
+    if (!isActive && !window.confirm(t('confirmDeactivateMember'))) return
+    await runAction(
+      () => api(isActive ? `/team/${member.id}/status` : `/team/${member.id}`, {
+        method: isActive ? 'PATCH' : 'DELETE',
+        ...(isActive ? { body: JSON.stringify({ is_active: true }) } : {}),
+      }),
+      isActive ? t('memberReactivated') : t('memberDeactivated'),
+    )
+  }
+
   async function issuePasswordReset(userId: string) {
     setSaving(true)
     setError('')
@@ -1342,7 +1361,10 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
             <div className="page-stack">
               <div className="team-grid">
                 <section className="panel table-panel"><PanelHeading title={t('team')} subtitle={`${team.users.length} ${t('team').toLocaleLowerCase(language)}`} />
-                  {team.users.length ? <div className="table-scroll"><table className="data-table"><thead><tr><th>{t('email')}</th><th>{t('role')}</th><th>{t('date')}</th><th>{t('resetPassword')}</th></tr></thead><tbody>{team.users.map((member) => <tr key={member.id}><td>{member.email}{member.id === profile.id && <span className="you-tag">{language === 'ar' ? 'أنت' : 'Vous'}</span>}</td><td><select className="role-select" value={member.role} disabled={member.id === profile.id || saving} onChange={(event) => updateRole(member.id, event.target.value as Role)}><option value="admin">{t('admin')}</option><option value="storekeeper">{t('storekeeper')}</option><option value="viewer">{t('viewer')}</option></select></td><td>{dateLabel(member.created_at, language)}</td><td><button className="button button-quiet button-small" disabled={saving} onClick={() => void issuePasswordReset(member.id)}>{t('sendResetLink')}</button></td></tr>)}</tbody></table></div> : <EmptyState>{t('noTeam')}</EmptyState>}
+                  {team.users.length ? <div className="table-scroll"><table className="data-table"><thead><tr><th>{t('email')}</th><th>{t('role')}</th><th>{t('memberStatus')}</th><th>{t('date')}</th><th>{t('actions')}</th></tr></thead><tbody>{team.users.map((member) => {
+                    const isActive = !member.disabled_at
+                    return <tr key={member.id}><td>{member.email}{member.id === profile.id && <span className="you-tag">{language === 'ar' ? 'أنت' : 'Vous'}</span>}</td><td><select className="role-select" value={member.role} disabled={member.id === profile.id || !isActive || saving} onChange={(event) => updateRole(member.id, event.target.value as Role)}><option value="admin">{t('admin')}</option><option value="storekeeper">{t('storekeeper')}</option><option value="viewer">{t('viewer')}</option></select></td><td><span className={`status-badge ${isActive ? 'status-inStock' : 'status-outOfStock'}`}>{t(isActive ? 'activeMember' : 'disabledMember')}</span></td><td>{dateLabel(member.created_at, language)}</td><td><div className="table-actions"><button className="button button-quiet button-small" disabled={saving || !isActive} onClick={() => void issuePasswordReset(member.id)}>{t('sendResetLink')}</button>{member.id !== profile.id && <button className={`button button-small ${isActive ? 'button-outline' : 'button-primary'}`} disabled={saving} onClick={() => void setTeamMemberActive(member, !isActive)}>{t(isActive ? 'deactivateMember' : 'reactivateMember')}</button>}</div></td></tr>
+                  })}</tbody></table></div> : <EmptyState>{t('noTeam')}</EmptyState>}
                 </section>
                 <section className="panel invite-panel"><div className="panel-heading"><div><h2>{t('invite')}</h2><p>{t('pendingInvitations')}</p></div><span className="panel-icon"><UsersRound size={18} /></span></div>
                   <form className="form-stack" onSubmit={sendInvitation}><label>{t('inviteEmail')}<input type="email" required maxLength={254} value={inviteDraft.email} onChange={(event) => setInviteDraft({ ...inviteDraft, email: event.target.value })} /></label><label>{t('role')}<select value={inviteDraft.role} onChange={(event) => setInviteDraft({ ...inviteDraft, role: event.target.value as Role })}><option value="storekeeper">{t('storekeeper')}</option><option value="viewer">{t('viewer')}</option></select></label><button className="button button-primary" disabled={saving}><Plus size={16} />{t('inviteMember')}</button></form>

@@ -13,6 +13,7 @@ import {
   productInput,
   roleInput,
   supplierInput,
+  teamMemberStatusInput,
 } from '../server/validation.js'
 
 const validProduct = {
@@ -88,6 +89,12 @@ test('invitation and role schemas normalize email and reject admin invitations',
   assert.equal(inviteInput.safeParse({ email: 'member@example.com', role: 'admin' }).success, false)
   assert.equal(roleInput.safeParse({ role: 'storekeeper' }).success, true)
   assert.equal(roleInput.safeParse({ role: 'owner' }).success, false)
+})
+
+test('team member status requires an explicit boolean active state', () => {
+  assert.deepEqual(teamMemberStatusInput.parse({ is_active: false }), { is_active: false })
+  assert.deepEqual(teamMemberStatusInput.parse({ is_active: true }), { is_active: true })
+  assert.equal(teamMemberStatusInput.safeParse({ is_active: 'false' }).success, false)
 })
 
 test('password reset schemas validate email, token shape, and password limits', () => {

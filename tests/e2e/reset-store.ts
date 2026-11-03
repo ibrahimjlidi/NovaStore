@@ -22,7 +22,9 @@ export async function resetStore(context: E2eContext) {
     )
     await pool.query(
       `UPDATE store_users
-       SET role = CASE id WHEN $2 THEN 'admin' WHEN $3 THEN 'storekeeper' ELSE 'viewer' END
+       SET role = CASE id WHEN $2 THEN 'admin' WHEN $3 THEN 'storekeeper' ELSE 'viewer' END,
+           disabled_at = NULL,
+           auth_version = auth_version + 1
        WHERE store_id = $1`,
       [context.storeId, context.adminId, context.storekeeperId],
     )

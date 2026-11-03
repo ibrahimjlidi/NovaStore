@@ -89,6 +89,8 @@ This creates 25 demo products, stock variants and movements, five suppliers, and
    npm.cmd run db:migrate
    ```
 
+   Apply all pending migrations before deploying code that depends on their schema changes.
+
 4. Deploy the `production` branch. Vercel serves `/api/*` through the Express function and rewrites browser routes to the React app.
 
 Keep database and authentication secrets in encrypted environment settings, not Git or `VITE_` variables. Do not use a personal development database for production.
@@ -100,6 +102,7 @@ Keep database and authentication secrets in encrypted environment settings, not 
 - **Purchase orders:** draft, send, then receive orders. Receiving is transactional and creates one incoming movement for every order line.
 - **Alerts and reports:** low/out-of-stock products, inventory valuation, period-based movement charts, CSV export, and browser print/PDF.
 - **Users and roles:** invite members and assign Admin, Storekeeper, or Viewer access. The API enforces the same role boundaries as navigation.
+- **Team member CRUD:** administrators can list members, change roles, issue password-reset links, and deactivate/reactivate accounts. Deactivation revokes active sessions while retaining inventory and purchase-order history; the final active administrator cannot be removed or demoted.
 - **Languages and theme:** Arabic is the default, with a French switch and light/dark mode.
 
 ## Validation

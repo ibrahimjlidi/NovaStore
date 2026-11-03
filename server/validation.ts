@@ -93,6 +93,10 @@ export const roleInput = z.object({
   role: z.enum(['admin', 'storekeeper', 'viewer']),
 })
 
+export const teamMemberStatusInput = z.object({
+  is_active: z.boolean(),
+})
+
 export function parseInput<T>(schema: z.ZodType<T>, value: unknown): T {
   const result = schema.safeParse(value)
   if (!result.success) {

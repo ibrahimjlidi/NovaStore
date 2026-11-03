@@ -161,6 +161,11 @@ test('admin signs in, completes inventory workflows, exports reports, and manage
   await expect(storekeeperRole).toHaveValue('viewer')
   await storekeeperRole.selectOption('storekeeper')
   await expect(storekeeperRole).toHaveValue('storekeeper')
+  await page.once('dialog', (dialog) => dialog.accept())
+  await storekeeperRow.getByRole('button', { name: 'Désactiver' }).click()
+  await expect(storekeeperRow).toContainText('Désactivé')
+  await storekeeperRow.getByRole('button', { name: 'Réactiver' }).click()
+  await expect(storekeeperRow).toContainText('Actif')
   const inviteEmail = `ui-invite-${Date.now()}@e2e.invalid`
   await page.getByLabel('E-mail du membre').fill(inviteEmail)
   await page.getByLabel('Rôle').selectOption('viewer')

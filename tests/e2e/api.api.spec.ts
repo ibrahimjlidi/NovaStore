@@ -200,6 +200,104 @@ test('team management creates invitations and password reset links', async ({ pl
   }
 })
 
+test('team member CRUD deactivates access, preserves records, and supports reactivation', async ({ playwright }) => {
+  const memberSession = await playwright.request.newContext({ baseURL, extraHTTPHeaders: { Origin: baseURL } })
+  const loginAttempt = await playwright.request.newContext({ baseURL, extraHTTPHeaders: { Origin: baseURL } })
+  try {
+    const csrf = await (await memberSession.get('/api/auth/csrf')).json() as { csrfToken: string }
+    const login = await memberSession.post('/api/auth/callback/credentials', {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Auth-Return-Redirect': '1' },
+      form: {
+        csrfToken: csrf.csrfToken,
+        email: data.storekeeperEmail,
+        password: data.storekeeperPassword,
+        callbackUrl: baseURL,
+      },
+    })
+    expect(login.ok()).toBeTruthy()
+    expect((await memberSession.get('/api/me')).status()).toBe(200)
+    const memberMovement = await memberSession.post('/api/movements', {
+      data: { variant_id: data.variantId, type: 'IN', quantity: 1, note: 'created-by-deactivated-member' },
+    })
+    expect(memberMovement.status()).toBe(201)
+    expect((await api.delete(`/api/team/${data.adminId}`)).status()).toBe(409)
+    expect((await api.delete(`/api/team/${data.storekeeperId}`)).status()).toBe(204)
+
+    const membersAfterDelete = await (await api.get('/api/team')).json()
+    expect(membersAfterDelete.users).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: data.storekeeperId, disabled_at: expect.any(String) }),
+    ]))
+    expect(await (await api.get('/api/movements?days=90')).json()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ note: 'created-by-deactivated-member', created_by_email: data.storekeeperEmail }),
+    ]))
+    expect((await api.post(`/api/team/${data.storekeeperId}/password-reset`)).status()).toBe(404)
+    expect((await memberSession.get('/api/me')).status()).toBe(401)
+
+    const disabledLoginCsrf = await (await loginAttempt.get('/api/auth/csrf')).json() as { csrfToken: string }
+    await loginAttempt.post('/api/auth/callback/credentials', {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Auth-Return-Redirect': '1' },
+      form: {
+        csrfToken: disabledLoginCsrf.csrfToken,
+        email: data.storekeeperEmail,
+        password: data.storekeeperPassword,
+        callbackUrl: baseURL,
+      },
+    })
+    expect(await (await loginAttempt.get('/api/auth/session')).json()).toBeNull()
+
+    const reactivated = await api.patch(`/api/team/${data.storekeeperId}/status`, { data: { is_active: true } })
+    expect(reactivated.status()).toBe(200)
+    expect((await reactivated.json()).disabled_at).toBeNull()
+    const reactivatedLoginCsrf = await (await loginAttempt.get('/api/auth/csrf')).json() as { csrfToken: string }
+    const reactivatedLogin = await loginAttempt.post('/api/auth/callback/credentials', {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Auth-Return-Redirect': '1' },
+      form: {
+        csrfToken: reactivatedLoginCsrf.csrfToken,
+        email: data.storekeeperEmail,
+        password: data.storekeeperPassword,
+        callbackUrl: baseURL,
+      },
+    })
+    expect(reactivatedLogin.ok()).toBeTruthy()
+    expect((await loginAttempt.get('/api/me')).status()).toBe(200)
+  } finally {
+    await memberSession.dispose()
+    await loginAttempt.dispose()
+  }
+})
+
+test('concurrent administrator demotions cannot remove the final active administrator', async ({ playwright }) => {
+  expect((await api.patch(`/api/team/${data.storekeeperId}/role`, { data: { role: 'admin' } })).status()).toBe(200)
+  const secondAdmin = await playwright.request.newContext({ baseURL, extraHTTPHeaders: { Origin: baseURL } })
+  try {
+    const csrf = await (await secondAdmin.get('/api/auth/csrf')).json() as { csrfToken: string }
+    const login = await secondAdmin.post('/api/auth/callback/credentials', {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Auth-Return-Redirect': '1' },
+      form: {
+        csrfToken: csrf.csrfToken,
+        email: data.storekeeperEmail,
+        password: data.storekeeperPassword,
+        callbackUrl: baseURL,
+      },
+    })
+    expect(login.ok()).toBeTruthy()
+    const [demoteSecondAdmin, demoteFirstAdmin] = await Promise.all([
+      api.patch(`/api/team/${data.storekeeperId}/role`, { data: { role: 'viewer' } }),
+      secondAdmin.patch(`/api/team/${data.adminId}/role`, { data: { role: 'viewer' } }),
+    ])
+    const statuses = [demoteSecondAdmin.status(), demoteFirstAdmin.status()].sort()
+    expect(statuses[0]).toBe(200)
+    expect([403, 409]).toContain(statuses[1])
+    const survivingAdmin = demoteSecondAdmin.status() === 200 ? api : secondAdmin
+    const team = await (await survivingAdmin.get('/api/team')).json()
+    expect(team.users.filter((user: { role: string; disabled_at: string | null }) =>
+      user.role === 'admin' && user.disabled_at === null,
+    )).toHaveLength(1)
+  } finally {
+    await secondAdmin.dispose()
+  }
+})
+
 test('CSV import preview and commit preserve opening quantities as movements', async () => {
   const csv = [
     'sku,name_ar,name_fr,category,price_tnd,low_stock_threshold,size,color_key,color_ar,color_fr,color_hex,opening_quantity',

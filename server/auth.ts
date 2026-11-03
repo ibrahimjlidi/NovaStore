@@ -75,7 +75,7 @@ export const authConfig: ExpressAuthConfig = {
           auth_version: number
         }>(
           `SELECT id, email, password_hash, auth_version
-           FROM store_users WHERE lower(email) = $1 LIMIT 1`,
+           FROM store_users WHERE lower(email) = $1 AND disabled_at IS NULL LIMIT 1`,
           [parsedEmail.data],
         )
         const user = result.rows[0]
@@ -278,7 +278,8 @@ export async function createPasswordResetLink(userId: string, storeId: string) {
   const resetUrl = appLink('/reset-password', token)
   const user = await inTransaction(async (client) => {
     const member = await client.query<{ id: string; email: string }>(
-      'SELECT id, email FROM store_users WHERE id = $1 AND store_id = $2 FOR UPDATE',
+      `SELECT id, email FROM store_users
+       WHERE id = $1 AND store_id = $2 AND disabled_at IS NULL FOR UPDATE`,
       [userId, storeId],
     )
     if (!member.rows[0]) throw new HttpError(404, 'Team member not found.', 'not_found')
@@ -312,7 +313,7 @@ export async function createPasswordResetLink(userId: string, storeId: string) {
 export async function requestPasswordReset(email: string) {
   if (!process.env.RESEND_API_KEY || !process.env.EMAIL_FROM) return false
   const user = await getPool().query<{ id: string; store_id: string }>(
-    'SELECT id, store_id FROM store_users WHERE lower(email) = $1',
+    'SELECT id, store_id FROM store_users WHERE lower(email) = $1 AND disabled_at IS NULL',
     [email],
   )
   if (user.rows[0]) await createPasswordResetLink(user.rows[0].id, user.rows[0].store_id)
@@ -357,7 +358,7 @@ export async function authenticate(request: AuthenticatedRequest, _response: Res
       `SELECT u.id, u.store_id, u.email, u.role, u.auth_version,
               s.name AS store_name, s.city AS store_city
        FROM store_users u JOIN stores s ON s.id = u.store_id
-       WHERE u.id = $1`,
+       WHERE u.id = $1 AND u.disabled_at IS NULL`,
       [session.user.id],
     )
     const member = result.rows[0]
