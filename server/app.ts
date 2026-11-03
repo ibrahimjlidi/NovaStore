@@ -7,6 +7,7 @@ import {
   authHandler,
   authenticate,
   completePasswordReset,
+  createStoreMember,
   createPasswordResetLink,
   createStoreInvitation,
   getAllowedPages,
@@ -48,7 +49,7 @@ app.use('/api', rateLimit({
 }))
 app.use('/api/auth', rateLimit({
   windowMs: 15 * 60_000,
-  limit: 25,
+  limit: process.env.NODE_ENV === 'test' ? 10_000 : 25,
   standardHeaders: 'draft-8',
   legacyHeaders: false,
   skip: (request) => ['GET', 'HEAD', 'OPTIONS'].includes(request.method),
@@ -564,6 +565,11 @@ api.post('/team/invitations', admin, async (request: AuthenticatedRequest, respo
   const input = parseInput(inviteInput, request.body)
   const result = await createStoreInvitation(input.email, input.role, request.user!.store_id, request.user!.id)
   response.status(201).json(result)
+})
+
+api.post('/team', admin, async (request: AuthenticatedRequest, response) => {
+  const member = await createStoreMember(request.body, request.user!.store_id)
+  response.status(201).json(member)
 })
 
 api.post('/team/:id/password-reset', admin, async (request: AuthenticatedRequest, response) => {

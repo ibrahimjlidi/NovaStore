@@ -276,8 +276,10 @@ const copy = {
     receive: 'تأكيد الاستلام', lines: 'البنود', addLine: 'إضافة بند', unitCost: 'تكلفة الوحدة', total: 'الإجمالي',
     createPurchaseOrder: 'إنشاء طلب شراء', noAlerts: 'لا توجد تنبيهات مخزون.', createOrder: 'طلب شراء لهذا المنتج',
     reportPeriod: 'فترة التقرير', exportExcel: 'تصدير CSV', exportPdf: 'طباعة / PDF', valuation: 'تقييم المخزون',
-    role: 'الدور', admin: 'مدير', storekeeper: 'أمين مخزن', viewer: 'مشاهد', invite: 'دعوة مستخدم',
-    inviteMember: 'إرسال دعوة', accessMatrix: 'صلاحيات الأدوار', page: 'الصفحة', allowed: 'مسموح', restricted: 'غير مسموح',
+    role: 'الدور', admin: 'مدير', storekeeper: 'أمين مخزن', viewer: 'مشاهد', invite: 'إضافة مستخدم',
+    inviteMember: 'إرسال دعوة', createMember: 'إنشاء حساب', directCreate: 'إضافة مباشرة', invitationMode: 'إرسال دعوة',
+    createMemberSubmit: 'إنشاء المستخدم', memberCreated: 'تم إنشاء المستخدم.', memberPassword: 'كلمة المرور الأولية',
+    accessMatrix: 'صلاحيات الأدوار', page: 'الصفحة', allowed: 'مسموح', restricted: 'غير مسموح',
     pendingInvitations: 'الدعوات المعلقة', noTeam: 'لا يوجد أعضاء بعد.', roleUpdated: 'تم تحديث الدور.',
     memberStatus: 'حالة الحساب', activeMember: 'نشط', disabledMember: 'معطّل',
     deactivateMember: 'تعطيل الحساب', reactivateMember: 'إعادة تفعيل الحساب',
@@ -334,8 +336,10 @@ const copy = {
     receive: 'Confirmer la réception', lines: 'Lignes', addLine: 'Ajouter une ligne', unitCost: 'Coût unitaire', total: 'Total',
     createPurchaseOrder: 'Créer une commande', noAlerts: 'Aucune alerte de stock.', createOrder: 'Commander ce produit',
     reportPeriod: 'Période', exportExcel: 'Exporter CSV', exportPdf: 'Imprimer / PDF', valuation: 'Valorisation du stock',
-    role: 'Rôle', admin: 'Administrateur', storekeeper: 'Magasinier', viewer: 'Lecteur', invite: 'Inviter un membre',
-    inviteMember: 'Envoyer l’invitation', accessMatrix: 'Accès par rôle', page: 'Page', allowed: 'Autorisé', restricted: 'Refusé',
+    role: 'Rôle', admin: 'Administrateur', storekeeper: 'Magasinier', viewer: 'Lecteur', invite: 'Ajouter un utilisateur',
+    inviteMember: 'Envoyer l’invitation', createMember: 'Créer le compte', directCreate: 'Créer directement', invitationMode: 'Inviter par e-mail',
+    createMemberSubmit: 'Créer le compte', memberCreated: 'Utilisateur créé.', memberPassword: 'Mot de passe initial',
+    accessMatrix: 'Accès par rôle', page: 'Page', allowed: 'Autorisé', restricted: 'Refusé',
     pendingInvitations: 'Invitations en attente', noTeam: 'Aucun membre.', roleUpdated: 'Rôle mis à jour.',
     memberStatus: 'État du compte', activeMember: 'Actif', disabledMember: 'Désactivé',
     deactivateMember: 'Désactiver', reactivateMember: 'Réactiver',
@@ -522,7 +526,9 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
   const [supplierDraft, setSupplierDraft] = useState({ name: '', phone: '', city: '', email: '', notes: '' })
   const [orderSupplier, setOrderSupplier] = useState('')
   const [orderLines, setOrderLines] = useState<Array<{ variant_id: string; quantity: string; unit_cost_tnd: string }>>([])
+  const [teamFormMode, setTeamFormMode] = useState<'create' | 'invite'>('create')
   const [inviteDraft, setInviteDraft] = useState({ email: '', role: 'storekeeper' as Role })
+  const [memberDraft, setMemberDraft] = useState({ email: '', password: '', passwordConfirm: '', role: 'storekeeper' as Role })
   const [csv, setCsv] = useState('')
   const [importPreview, setImportPreview] = useState<ImportPreview | null>(null)
   const [importError, setImportError] = useState('')
@@ -1010,6 +1016,34 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
     }
   }
 
+  async function createTeamMember(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (memberDraft.password !== memberDraft.passwordConfirm) {
+      setError(t('passwordMismatch'))
+      return
+    }
+    setSaving(true)
+    setError('')
+    setInvitationLink(null)
+    try {
+      await api('/team', {
+        method: 'POST',
+        body: JSON.stringify({
+          email: memberDraft.email,
+          password: memberDraft.password,
+          role: memberDraft.role,
+        }),
+      })
+      await refresh()
+      showNotice(t('memberCreated'))
+      setMemberDraft({ email: '', password: '', passwordConfirm: '', role: 'storekeeper' })
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : t('apiError'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
   async function updateRole(userId: string, role: Role) {
     await runAction(() => api(`/team/${userId}/role`, {
       method: 'PATCH',
@@ -1367,9 +1401,25 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
                   })}</tbody></table></div> : <EmptyState>{t('noTeam')}</EmptyState>}
                 </section>
                 <section className="panel invite-panel"><div className="panel-heading"><div><h2>{t('invite')}</h2><p>{t('pendingInvitations')}</p></div><span className="panel-icon"><UsersRound size={18} /></span></div>
-                  <form className="form-stack" onSubmit={sendInvitation}><label>{t('inviteEmail')}<input type="email" required maxLength={254} value={inviteDraft.email} onChange={(event) => setInviteDraft({ ...inviteDraft, email: event.target.value })} /></label><label>{t('role')}<select value={inviteDraft.role} onChange={(event) => setInviteDraft({ ...inviteDraft, role: event.target.value as Role })}><option value="storekeeper">{t('storekeeper')}</option><option value="viewer">{t('viewer')}</option></select></label><button className="button button-primary" disabled={saving}><Plus size={16} />{t('inviteMember')}</button></form>
+                  <div className="table-actions">
+                    <button type="button" className={`button button-small ${teamFormMode === 'create' ? 'button-primary' : 'button-outline'}`} aria-pressed={teamFormMode === 'create'} onClick={() => setTeamFormMode('create')}>{t('directCreate')}</button>
+                    <button type="button" className={`button button-small ${teamFormMode === 'invite' ? 'button-primary' : 'button-outline'}`} aria-pressed={teamFormMode === 'invite'} onClick={() => setTeamFormMode('invite')}>{t('invitationMode')}</button>
+                  </div>
+                  {teamFormMode === 'create'
+                    ? <form className="form-stack" onSubmit={createTeamMember}>
+                      <label>{t('inviteEmail')}<input type="email" required maxLength={254} value={memberDraft.email} onChange={(event) => setMemberDraft({ ...memberDraft, email: event.target.value })} /></label>
+                      <label>{t('memberPassword')}<input type="password" required minLength={12} maxLength={72} autoComplete="new-password" value={memberDraft.password} onChange={(event) => setMemberDraft({ ...memberDraft, password: event.target.value })} /></label>
+                      <label>{t('confirmPassword')}<input type="password" required minLength={12} maxLength={72} autoComplete="new-password" value={memberDraft.passwordConfirm} onChange={(event) => setMemberDraft({ ...memberDraft, passwordConfirm: event.target.value })} /></label>
+                      <label>{t('role')}<select value={memberDraft.role} onChange={(event) => setMemberDraft({ ...memberDraft, role: event.target.value as Role })}><option value="admin">{t('admin')}</option><option value="storekeeper">{t('storekeeper')}</option><option value="viewer">{t('viewer')}</option></select></label>
+                      <button className="button button-primary" disabled={saving}><Plus size={16} />{t('createMemberSubmit')}</button>
+                    </form>
+                    : <form className="form-stack" onSubmit={sendInvitation}>
+                      <label>{t('inviteEmail')}<input type="email" required maxLength={254} value={inviteDraft.email} onChange={(event) => setInviteDraft({ ...inviteDraft, email: event.target.value })} /></label>
+                      <label>{t('role')}<select value={inviteDraft.role} onChange={(event) => setInviteDraft({ ...inviteDraft, role: event.target.value as Role })}><option value="storekeeper">{t('storekeeper')}</option><option value="viewer">{t('viewer')}</option></select></label>
+                      <button className="button button-primary" disabled={saving}><Plus size={16} />{t('inviteMember')}</button>
+                    </form>}
                   <div className="pending-list"><h3>{t('pendingInvitations')}</h3>{team.invitations.length ? team.invitations.map((invite) => <div className="pending-row" key={invite.id}><span>{invite.email}</span><span className="role-pill">{roleName(invite.role, language)}</span></div>) : <p className="muted-copy">—</p>}</div>
-                  {invitationLink && <div className="account-link"><p>{!invitationLink.email_sent && t('emailDeliveryNote')}</p><a href={invitationLink.url} referrerPolicy="no-referrer">{invitationLink.url}</a><button className="button button-outline button-small" onClick={() => void copyAccountLink(invitationLink.url)}>{t('copyLink')}</button></div>}
+                  {teamFormMode === 'invite' && invitationLink && <div className="account-link"><p>{!invitationLink.email_sent && t('emailDeliveryNote')}</p><a href={invitationLink.url} referrerPolicy="no-referrer">{invitationLink.url}</a><button className="button button-outline button-small" onClick={() => void copyAccountLink(invitationLink.url)}>{t('copyLink')}</button></div>}
                 </section>
               </div>
               {passwordResetLink && <section className="panel account-link"><p>{!passwordResetLink.email_sent && t('emailDeliveryNote')}</p><a href={passwordResetLink.url} referrerPolicy="no-referrer">{passwordResetLink.url}</a><button className="button button-outline button-small" onClick={() => void copyAccountLink(passwordResetLink.url)}>{t('copyLink')}</button></section>}

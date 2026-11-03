@@ -266,6 +266,29 @@ test('team member CRUD deactivates access, preserves records, and supports react
   }
 })
 
+test('admins can create a user directly with credentials and assigned role', async ({ playwright }) => {
+  const email = `direct-${Date.now()}@e2e.invalid`
+  const password = 'a-direct-account-password'
+  const created = await api.post('/api/team', { data: { email, password, role: 'viewer' } })
+  expect(created.status()).toBe(201)
+  expect(await created.json()).toMatchObject({ email, role: 'viewer', disabled_at: null })
+  expect((await api.post('/api/team', { data: { email, password, role: 'viewer' } })).status()).toBe(409)
+  expect((await api.post('/api/team', { data: { email: 'bad-email', password: 'short', role: 'viewer' } })).status()).toBe(400)
+
+  const member = await playwright.request.newContext({ baseURL, extraHTTPHeaders: { Origin: baseURL } })
+  try {
+    const csrf = await (await member.get('/api/auth/csrf')).json() as { csrfToken: string }
+    const login = await member.post('/api/auth/callback/credentials', {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Auth-Return-Redirect': '1' },
+      form: { csrfToken: csrf.csrfToken, email, password, callbackUrl: baseURL },
+    })
+    expect(login.ok()).toBeTruthy()
+    expect(await (await member.get('/api/me')).json()).toMatchObject({ email, role: 'viewer' })
+  } finally {
+    await member.dispose()
+  }
+})
+
 test('concurrent administrator demotions cannot remove the final active administrator', async ({ playwright }) => {
   expect((await api.patch(`/api/team/${data.storekeeperId}/role`, { data: { role: 'admin' } })).status()).toBe(200)
   const secondAdmin = await playwright.request.newContext({ baseURL, extraHTTPHeaders: { Origin: baseURL } })

@@ -154,7 +154,7 @@ test('admin signs in, completes inventory workflows, exports reports, and manage
   await expect(page.getByRole('row').filter({ hasText: 'E2E-BASE-001' })).toBeVisible()
 
   await page.getByRole('navigation').getByRole('button', { name: 'Utilisateurs et rôles' }).click()
-  await expect(page.getByRole('heading', { name: 'Inviter un membre' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Ajouter un utilisateur' })).toBeVisible()
   const storekeeperRow = page.getByRole('row').filter({ hasText: data.storekeeperEmail })
   const storekeeperRole = storekeeperRow.getByRole('combobox')
   await storekeeperRole.selectOption('viewer')
@@ -166,6 +166,14 @@ test('admin signs in, completes inventory workflows, exports reports, and manage
   await expect(storekeeperRow).toContainText('Désactivé')
   await storekeeperRow.getByRole('button', { name: 'Réactiver' }).click()
   await expect(storekeeperRow).toContainText('Actif')
+  const directEmail = `ui-direct-${Date.now()}@e2e.invalid`
+  await page.getByLabel('E-mail du membre').fill(directEmail)
+  await page.getByLabel('Mot de passe initial').fill('ui-direct-account-password')
+  await page.getByLabel('Confirmer le mot de passe').fill('ui-direct-account-password')
+  await page.getByLabel('Rôle').selectOption('viewer')
+  await page.getByRole('button', { name: 'Créer le compte' }).click()
+  await expect(page.getByRole('row').filter({ hasText: directEmail })).toBeVisible()
+  await page.getByRole('button', { name: 'Inviter par e-mail' }).click()
   const inviteEmail = `ui-invite-${Date.now()}@e2e.invalid`
   await page.getByLabel('E-mail du membre').fill(inviteEmail)
   await page.getByLabel('Rôle').selectOption('viewer')

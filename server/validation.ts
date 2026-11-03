@@ -74,6 +74,12 @@ export const passwordInput = z.string()
   .min(12)
   .refine((value) => new TextEncoder().encode(value).length <= 72)
 
+export const teamMemberCreateInput = z.object({
+  email: emailInput,
+  password: passwordInput,
+  role: z.enum(['admin', 'storekeeper', 'viewer']),
+})
+
 export const acceptInvitationInput = z.object({
   token: z.string().regex(/^[a-f0-9]{64}$/i),
   email: emailInput,

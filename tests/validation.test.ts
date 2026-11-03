@@ -13,6 +13,7 @@ import {
   productInput,
   roleInput,
   supplierInput,
+  teamMemberCreateInput,
   teamMemberStatusInput,
 } from '../server/validation.js'
 
@@ -95,6 +96,28 @@ test('team member status requires an explicit boolean active state', () => {
   assert.deepEqual(teamMemberStatusInput.parse({ is_active: false }), { is_active: false })
   assert.deepEqual(teamMemberStatusInput.parse({ is_active: true }), { is_active: true })
   assert.equal(teamMemberStatusInput.safeParse({ is_active: 'false' }).success, false)
+})
+
+test('direct team member creation validates email, password, and role', () => {
+  assert.deepEqual(teamMemberCreateInput.parse({
+    email: ' MEMBER@example.com ',
+    password: 'a-secure-account-password',
+    role: 'viewer',
+  }), {
+    email: 'member@example.com',
+    password: 'a-secure-account-password',
+    role: 'viewer',
+  })
+  assert.equal(teamMemberCreateInput.safeParse({
+    email: 'member@example.com',
+    password: 'short',
+    role: 'viewer',
+  }).success, false)
+  assert.equal(teamMemberCreateInput.safeParse({
+    email: 'member@example.com',
+    password: 'a-secure-account-password',
+    role: 'owner',
+  }).success, false)
 })
 
 test('password reset schemas validate email, token shape, and password limits', () => {

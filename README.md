@@ -101,7 +101,7 @@ Keep database and authentication secrets in encrypted environment settings, not 
 - **Stock movements:** create incoming, outgoing, or signed adjustment entries. The API locks the variant and rejects any operation that would make stock negative.
 - **Purchase orders:** draft, send, then receive orders. Receiving is transactional and creates one incoming movement for every order line.
 - **Alerts and reports:** low/out-of-stock products, inventory valuation, period-based movement charts, CSV export, and browser print/PDF.
-- **Users and roles:** invite members and assign Admin, Storekeeper, or Viewer access. The API enforces the same role boundaries as navigation.
+- **Users and roles:** administrators can create accounts directly with an initial password or invite members by email, then assign Admin, Storekeeper, or Viewer access. The API enforces the same role boundaries as navigation.
 - **Team member CRUD:** administrators can list members, change roles, issue password-reset links, and deactivate/reactivate accounts. Deactivation revokes active sessions while retaining inventory and purchase-order history; the final active administrator cannot be removed or demoted.
 - **Languages and theme:** Arabic is the default, with a French switch and light/dark mode.
 

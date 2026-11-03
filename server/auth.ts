@@ -6,7 +6,7 @@ import { createHash, randomBytes } from 'node:crypto'
 import type { PoolClient } from 'pg'
 import { getPool, inTransaction } from './db.js'
 import { HttpError } from './errors.js'
-import { acceptInvitationInput, emailInput, passwordInput } from './validation.js'
+import { acceptInvitationInput, emailInput, passwordInput, teamMemberCreateInput } from './validation.js'
 
 export type StoreRole = 'admin' | 'storekeeper' | 'viewer'
 
@@ -270,6 +270,32 @@ export async function createStoreInvitation(
     await getPool().query("UPDATE invitations SET status = 'revoked' WHERE id = $1", [invite.rows[0].id])
     throw error
   }
+}
+
+export async function createStoreMember(value: unknown, storeId: string) {
+  const parsed = teamMemberCreateInput.safeParse(value)
+  if (!parsed.success) {
+    throw new HttpError(400, 'Enter a valid email, password, and role.', 'validation_error')
+  }
+  const passwordHash = await bcrypt.hash(parsed.data.password, 12)
+  return inTransaction(async (client) => {
+    const member = await client.query(
+      `INSERT INTO store_users (store_id, email, password_hash, role)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (lower(email)) DO NOTHING
+       RETURNING id, email, role, created_at, disabled_at`,
+      [storeId, parsed.data.email, passwordHash, parsed.data.role],
+    )
+    if (!member.rowCount) {
+      throw new HttpError(409, 'This email is already a member of a store.', 'already_a_member')
+    }
+    await client.query(
+      `UPDATE invitations SET status = 'revoked'
+       WHERE store_id = $1 AND lower(email) = $2 AND status = 'pending'`,
+      [storeId, parsed.data.email],
+    )
+    return member.rows[0]
+  })
 }
 
 export async function createPasswordResetLink(userId: string, storeId: string) {
