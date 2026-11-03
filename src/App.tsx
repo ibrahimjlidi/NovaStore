@@ -13,6 +13,7 @@ import {
   FileSpreadsheet,
   FileText,
   LayoutDashboard,
+  LogOut,
   Menu,
   Moon,
   Package,
@@ -25,7 +26,6 @@ import {
   UsersRound,
   X,
 } from 'lucide-react'
-import { ClerkProvider, SignIn, UserButton, useAuth, useUser } from '@clerk/react'
 import {
   Bar,
   BarChart,
@@ -46,6 +46,7 @@ type Role = 'admin' | 'storekeeper' | 'viewer'
 type Category = 'tshirt' | 'jeans' | 'dress' | 'jacket' | 'shoes' | 'accessories'
 type Size = 'S' | 'M' | 'L' | 'XL' | 'ONE_SIZE'
 type MovementType = 'IN' | 'OUT' | 'ADJUSTMENT'
+type AuthMode = 'signin' | 'invite' | 'forgot' | 'reset'
 
 interface Variant {
   id: string
@@ -71,7 +72,6 @@ interface Product {
 
 interface Profile {
   id: string
-  clerk_user_id: string
   email: string
   role: Role
   store: { id: string; name: string; city: string; currency: string }
@@ -150,6 +150,11 @@ interface TeamData {
   invitations: Array<{ id: string; email: string; role: Role; status: string; created_at: string }>
 }
 
+interface AccountLink {
+  url: string
+  email_sent: boolean
+}
+
 interface InventoryReport {
   totals: { product_count: number; unit_count: number; inventory_value: number | string }
   products: Array<Product & { value_tnd: number | string }>
@@ -201,6 +206,14 @@ class ApiError extends Error {
   }
 }
 
+async function getAuthCsrfToken() {
+  const response = await fetch('/api/auth/csrf', { credentials: 'same-origin' })
+  if (!response.ok) throw new Error('Unable to start a secure sign-in request.')
+  const body = await response.json() as { csrfToken?: string }
+  if (!body.csrfToken) throw new Error('Unable to start a secure sign-in request.')
+  return body.csrfToken
+}
+
 const pageIcons = {
   dashboard: LayoutDashboard,
   products: Package,
@@ -249,7 +262,7 @@ const copy = {
     importSummary: 'ملخص الاستيراد', rows: 'صفوف', openingUnits: 'وحدات الرصيد الافتتاحي', importHelp: 'استخدم قالب CSV الموجود في مجلد imports.',
     loading: 'جارٍ تحميل البيانات...', loadError: 'تعذر تحميل البيانات', retry: 'إعادة المحاولة', signIn: 'تسجيل الدخول',
     signInHelp: 'سجّل الدخول إلى مساحة مخزون متجرك.', missingConfig: 'إعداد تسجيل الدخول غير مكتمل',
-    missingConfigHelp: 'أضف VITE_CLERK_PUBLISHABLE_KEY إلى إعدادات البيئة ثم أعد تشغيل التطبيق.',
+    missingConfigHelp: 'أكمل إعدادات قاعدة البيانات ومفتاح الجلسات في ملف البيئة ثم أعد تشغيل التطبيق.',
     apiError: 'تعذر إكمال الطلب.', saveSuccess: 'تم الحفظ بنجاح.', archived: 'تمت أرشفة المنتج.',
     confirmArchive: 'أرشفة هذا المنتج؟ سيبقى محفوظاً في سجل المخزون.', confirmReceive: 'تأكيد استلام جميع بنود الطلب وإضافة الكميات للمخزون؟',
     confirmImportPrompt: 'سيتم إنشاء المنتجات وحركات الأرصدة الافتتاحية. هل تريد المتابعة؟',
@@ -258,6 +271,21 @@ const copy = {
     generated: 'بيانات مباشرة من قاعدة البيانات', inviteEmail: 'بريد المستخدم', allSizes: 'كل المقاسات', allColors: 'كل الألوان',
     selectSupplier: 'اختر المورد', choose: 'اختر', fileIssues: 'أصلح أخطاء الملف قبل المتابعة.', stockHistoryNote: 'الكمية محسوبة من سجل الحركات.',
     chartEmpty: 'تظهر الرسوم بعد تسجيل حركات المخزون.', waitingAuth: 'جارٍ التحقق من الحساب...',
+    authEmail: 'البريد الإلكتروني', authPassword: 'كلمة المرور', newPassword: 'كلمة مرور جديدة',
+    confirmPassword: 'تأكيد كلمة المرور', forgotPassword: 'نسيت كلمة المرور؟', resetPassword: 'إعادة تعيين كلمة المرور',
+    acceptInvite: 'قبول الدعوة', invitedEmail: 'البريد الإلكتروني المدعو', backToSignIn: 'العودة لتسجيل الدخول',
+    authFailed: 'تعذر تسجيل الدخول. تحقق من البريد الإلكتروني وكلمة المرور.',
+    passwordMismatch: 'كلمتا المرور غير متطابقتين.', passwordRequirement: 'استخدم 12 حرفاً على الأقل.',
+    resetRequestHelp: 'إذا كان الحساب موجوداً، فستصل تعليمات إعادة التعيين إلى البريد المسجل.',
+    resetRequestSent: 'إذا كان الحساب موجوداً، فسيتم إرسال تعليمات إعادة التعيين.',
+    resetEmailUnavailable: 'إرسال البريد غير مفعّل. اطلب رابط إعادة التعيين من مدير المتجر.',
+    passwordUpdated: 'تم تحديث كلمة المرور. يمكنك تسجيل الدخول الآن.',
+    invitationAccepted: 'تم قبول الدعوة. يمكنك تسجيل الدخول الآن.',
+    linkInvalid: 'الرابط غير صالح أو منتهي الصلاحية.', signOut: 'تسجيل الخروج',
+    copyLink: 'نسخ الرابط', linkCopied: 'تم نسخ الرابط.', inviteCreated: 'تم إنشاء الدعوة.',
+    inviteSent: 'تم إرسال الدعوة بالبريد الإلكتروني.', resetLinkCreated: 'تم إنشاء رابط إعادة التعيين.',
+    emailDeliveryNote: 'لم يُضبط إرسال البريد. انسخ الرابط وشاركه بأمان.',
+    sendResetLink: 'إنشاء رابط إعادة تعيين',
   },
   fr: {
     dashboard: 'Tableau de bord', products: 'Produits', movements: 'Mouvements', suppliers: 'Fournisseurs et commandes',
@@ -288,7 +316,7 @@ const copy = {
     importSummary: 'Résumé de l’import', rows: 'lignes', openingUnits: 'Unités de stock initial', importHelp: 'Utilisez le modèle CSV du dossier imports.',
     loading: 'Chargement des données…', loadError: 'Impossible de charger les données', retry: 'Réessayer', signIn: 'Connexion',
     signInHelp: 'Connectez-vous à l’espace de stock de votre magasin.', missingConfig: 'Configuration de connexion incomplète',
-    missingConfigHelp: 'Ajoutez VITE_CLERK_PUBLISHABLE_KEY à la configuration puis redémarrez.',
+    missingConfigHelp: 'Configurez la base de données et le secret de session dans le fichier d’environnement, puis redémarrez.',
     apiError: 'La requête a échoué.', saveSuccess: 'Enregistré.', archived: 'Produit archivé.',
     confirmArchive: 'Archiver ce produit ? Il restera dans l’historique du stock.', confirmReceive: 'Confirmer la réception et ajouter les quantités au stock ?',
     confirmImportPrompt: 'Les produits et mouvements de stock initial seront créés. Continuer ?',
@@ -297,6 +325,21 @@ const copy = {
     generated: 'Données en direct depuis la base', inviteEmail: 'E-mail du membre', allSizes: 'Toutes les tailles', allColors: 'Toutes les couleurs',
     selectSupplier: 'Choisir un fournisseur', choose: 'Choisir', fileIssues: 'Corrigez les erreurs du fichier avant de continuer.', stockHistoryNote: 'Quantité calculée depuis les mouvements.',
     chartEmpty: 'Les graphiques apparaissent après les premiers mouvements.', waitingAuth: 'Vérification du compte…',
+    authEmail: 'E-mail', authPassword: 'Mot de passe', newPassword: 'Nouveau mot de passe',
+    confirmPassword: 'Confirmer le mot de passe', forgotPassword: 'Mot de passe oublié ?', resetPassword: 'Réinitialiser le mot de passe',
+    acceptInvite: 'Accepter l’invitation', invitedEmail: 'E-mail invité', backToSignIn: 'Retour à la connexion',
+    authFailed: 'Connexion impossible. Vérifiez votre adresse e-mail et votre mot de passe.',
+    passwordMismatch: 'Les mots de passe ne correspondent pas.', passwordRequirement: 'Utilisez au moins 12 caractères.',
+    resetRequestHelp: 'Si le compte existe, les instructions seront envoyées à son adresse e-mail.',
+    resetRequestSent: 'Si le compte existe, les instructions de réinitialisation seront envoyées.',
+    resetEmailUnavailable: 'L’envoi d’e-mails n’est pas activé. Demandez un lien à l’administrateur du magasin.',
+    passwordUpdated: 'Mot de passe modifié. Vous pouvez vous connecter.',
+    invitationAccepted: 'Invitation acceptée. Vous pouvez vous connecter.',
+    linkInvalid: 'Ce lien est invalide ou expiré.', signOut: 'Déconnexion',
+    copyLink: 'Copier le lien', linkCopied: 'Lien copié.', inviteCreated: 'Invitation créée.',
+    inviteSent: 'Invitation envoyée par e-mail.', resetLinkCreated: 'Lien de réinitialisation créé.',
+    emailDeliveryNote: 'L’envoi d’e-mails n’est pas configuré. Copiez et partagez le lien de façon sécurisée.',
+    sendResetLink: 'Créer un lien de réinitialisation',
   },
 } as const
 
@@ -372,7 +415,6 @@ function EmptyState({ children }: { children: ReactNode }) {
 }
 
 export default function App() {
-  const publishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
   const [language, setLanguage] = useState<Language>('ar')
   const [darkMode, setDarkMode] = useState(false)
   const t = useCallback((key: keyof typeof copy.ar) => copy[language][key], [language])
@@ -382,32 +424,14 @@ export default function App() {
     document.documentElement.dir = language === 'ar' ? 'rtl' : 'ltr'
   }, [language])
 
-  if (!publishableKey) {
-    return (
-      <main className="setup-screen" dir={language === 'ar' ? 'rtl' : 'ltr'}>
-        <div className="setup-card">
-          <div className="brand-mark"><Shirt size={22} /></div>
-          <h1>NovaStore</h1>
-          <h2>{t('missingConfig')}</h2>
-          <p>{t('missingConfigHelp')}</p>
-          <button className="button button-outline" onClick={() => setLanguage(language === 'ar' ? 'fr' : 'ar')}>
-            {language === 'ar' ? 'Français' : 'العربية'}
-          </button>
-        </div>
-      </main>
-    )
-  }
-
   return (
-    <ClerkProvider publishableKey={publishableKey}>
-      <AuthenticatedApp
-        language={language}
-        setLanguage={setLanguage}
-        darkMode={darkMode}
-        setDarkMode={setDarkMode}
-        t={t}
-      />
-    </ClerkProvider>
+    <AuthenticatedApp
+      language={language}
+      setLanguage={setLanguage}
+      darkMode={darkMode}
+      setDarkMode={setDarkMode}
+      t={t}
+    />
   )
 }
 
@@ -418,8 +442,24 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
   setDarkMode: (dark: boolean) => void
   t: (key: keyof typeof copy.ar) => string
 }) {
-  const { isLoaded, isSignedIn, getToken } = useAuth()
-  const { user } = useUser()
+  const [isLoaded, setIsLoaded] = useState(false)
+  const [isSignedIn, setIsSignedIn] = useState(false)
+  const [currentUser, setCurrentUser] = useState<{ email: string } | null>(null)
+  const [authMode, setAuthMode] = useState<AuthMode>(() => {
+    if (window.location.pathname === '/invite') return 'invite'
+    if (window.location.pathname === '/reset-password') return 'reset'
+    return 'signin'
+  })
+  const [authEmail, setAuthEmail] = useState('')
+  const [authPassword, setAuthPassword] = useState('')
+  const [authPasswordConfirm, setAuthPasswordConfirm] = useState('')
+  const [authBusy, setAuthBusy] = useState(false)
+  const [authError, setAuthError] = useState('')
+  const [authNotice, setAuthNotice] = useState('')
+  const [invitationLink, setInvitationLink] = useState<AccountLink | null>(null)
+  const [passwordResetLink, setPasswordResetLink] = useState<AccountLink | null>(null)
+  const [authToken, setAuthToken] = useState(() => new URLSearchParams(window.location.search).get('token') ?? '')
+  const [authTokenValid, setAuthTokenValid] = useState(Boolean(authToken))
   const [profile, setProfile] = useState<Profile | null>(null)
   const [dashboard, setDashboard] = useState<DashboardData | null>(null)
   const [products, setProducts] = useState<Product[]>([])
@@ -460,14 +500,12 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
   const [teamRoleFilter, setTeamRoleFilter] = useState<Role>('admin')
 
   const api = useCallback(async <T,>(path: string, init: RequestInit = {}): Promise<T> => {
-    const token = await getToken()
-    if (!token) throw new Error(t('signIn'))
     const response = await fetch(`/api${path}`, {
       ...init,
+      credentials: 'same-origin',
       headers: {
         ...(init.body ? { 'Content-Type': 'application/json' } : {}),
         ...init.headers,
-        Authorization: `Bearer ${token}`,
       },
     })
     const text = await response.text()
@@ -480,7 +518,197 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
       throw new ApiError(message, body)
     }
     return body as T
-  }, [getToken, t])
+  }, [t])
+
+  useEffect(() => {
+    if (authToken) window.history.replaceState(null, '', window.location.pathname)
+  }, [authToken])
+
+  function changeAuthMode(mode: AuthMode) {
+    setAuthMode(mode)
+    setAuthError('')
+    setAuthNotice('')
+    if (mode === 'signin' || mode === 'forgot') {
+      window.history.replaceState(null, '', '/')
+    }
+  }
+
+  async function submitSignIn(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setAuthBusy(true)
+    setAuthError('')
+    try {
+      const csrfToken = await getAuthCsrfToken()
+      const response = await fetch('/api/auth/callback/credentials', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'X-Auth-Return-Redirect': '1',
+        },
+        body: new URLSearchParams({
+          csrfToken,
+          email: authEmail.trim().toLowerCase(),
+          password: authPassword,
+          callbackUrl: window.location.origin,
+        }),
+      })
+      const result = await response.json() as { url?: string }
+      if (!response.ok || !result.url || new URL(result.url, window.location.origin).searchParams.has('error')) {
+        throw new Error(t('authFailed'))
+      }
+      const sessionResponse = await fetch('/api/auth/session', { credentials: 'same-origin' })
+      const session = await sessionResponse.json() as { user?: { email?: string | null } } | null
+      if (!sessionResponse.ok || !session?.user) throw new Error(t('authFailed'))
+      setCurrentUser({ email: session.user.email || authEmail.trim().toLowerCase() })
+      setIsSignedIn(true)
+      setAuthPassword('')
+      setAuthNotice('')
+      window.history.replaceState(null, '', '/')
+    } catch (caught) {
+      setAuthError(caught instanceof Error ? caught.message : t('authFailed'))
+    } finally {
+      setAuthBusy(false)
+    }
+  }
+
+  async function submitInvitationAcceptance(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!authTokenValid) {
+      setAuthError(t('linkInvalid'))
+      return
+    }
+    if (authPassword !== authPasswordConfirm) {
+      setAuthError(t('passwordMismatch'))
+      return
+    }
+    setAuthBusy(true)
+    setAuthError('')
+    try {
+      await api('/public/invitations/accept', {
+        method: 'POST',
+        body: JSON.stringify({ token: authToken, email: authEmail, password: authPassword }),
+      })
+      setAuthPassword('')
+      setAuthPasswordConfirm('')
+      setAuthToken('')
+      setAuthTokenValid(false)
+      setAuthNotice(t('invitationAccepted'))
+      window.history.replaceState(null, '', '/')
+      setAuthMode('signin')
+    } catch (caught) {
+      setAuthError(caught instanceof Error ? caught.message : t('apiError'))
+    } finally {
+      setAuthBusy(false)
+    }
+  }
+
+  async function submitPasswordResetRequest(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setAuthBusy(true)
+    setAuthError('')
+    try {
+      const result = await api<{ message: string; email_enabled?: boolean }>('/public/password-reset/request', {
+        method: 'POST',
+        body: JSON.stringify({ email: authEmail }),
+      })
+      setAuthNotice(result.email_enabled === false ? t('resetEmailUnavailable') : t('resetRequestSent'))
+    } catch (caught) {
+      setAuthError(caught instanceof Error ? caught.message : t('apiError'))
+    } finally {
+      setAuthBusy(false)
+    }
+  }
+
+  async function submitPasswordReset(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!authTokenValid) {
+      setAuthError(t('linkInvalid'))
+      return
+    }
+    if (authPassword !== authPasswordConfirm) {
+      setAuthError(t('passwordMismatch'))
+      return
+    }
+    setAuthBusy(true)
+    setAuthError('')
+    try {
+      await api('/public/password-reset/complete', {
+        method: 'POST',
+        body: JSON.stringify({ token: authToken, password: authPassword }),
+      })
+      setAuthPassword('')
+      setAuthPasswordConfirm('')
+      setAuthToken('')
+      setAuthTokenValid(false)
+      setAuthNotice(t('passwordUpdated'))
+      window.history.replaceState(null, '', '/')
+      setAuthMode('signin')
+    } catch (caught) {
+      setAuthError(caught instanceof Error ? caught.message : t('apiError'))
+    } finally {
+      setAuthBusy(false)
+    }
+  }
+
+  async function signOut() {
+    setAuthBusy(true)
+    setError('')
+    try {
+      const csrfToken = await getAuthCsrfToken()
+      const response = await fetch('/api/auth/signout', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'X-Auth-Return-Redirect': '1',
+        },
+        body: new URLSearchParams({ csrfToken, callbackUrl: window.location.origin }),
+      })
+      if (!response.ok) throw new Error(t('apiError'))
+      setIsSignedIn(false)
+      setCurrentUser(null)
+      setProfile(null)
+      setDashboard(null)
+      setLoading(true)
+      setAuthMode('signin')
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : t('apiError'))
+    } finally {
+      setAuthBusy(false)
+    }
+  }
+
+  async function copyAccountLink(url: string) {
+    try {
+      await navigator.clipboard.writeText(url)
+      showNotice(t('linkCopied'))
+    } catch {
+      setError(t('apiError'))
+    }
+  }
+
+  useEffect(() => {
+    let active = true
+    void fetch('/api/auth/session', { credentials: 'same-origin' })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(t('apiError'))
+        return response.json() as Promise<{ user?: { email?: string | null } } | null>
+      })
+      .then((session) => {
+        if (!active) return
+        const email = session?.user?.email
+        setCurrentUser(email ? { email } : null)
+        setIsSignedIn(Boolean(session?.user))
+      })
+      .catch((caught: unknown) => {
+        if (active) setAuthError(caught instanceof Error ? caught.message : t('apiError'))
+      })
+      .finally(() => {
+        if (active) setIsLoaded(true)
+      })
+    return () => { active = false }
+  }, [t])
 
   const fetchSnapshot = useCallback(async () => {
     const nextProfile = await api<Profile>('/me')
@@ -735,11 +963,23 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
 
   async function sendInvitation(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const saved = await runAction(() => api('/team/invitations', {
-      method: 'POST',
-      body: JSON.stringify(inviteDraft),
-    }))
-    if (saved) setInviteDraft({ email: '', role: 'storekeeper' })
+    setSaving(true)
+    setError('')
+    setInvitationLink(null)
+    try {
+      const result = await api<{ invitation_url: string; email_sent: boolean }>('/team/invitations', {
+        method: 'POST',
+        body: JSON.stringify(inviteDraft),
+      })
+      setInvitationLink({ url: result.invitation_url, email_sent: result.email_sent })
+      await refresh()
+      showNotice(result.email_sent ? t('inviteSent') : t('inviteCreated'))
+      setInviteDraft({ email: '', role: 'storekeeper' })
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : t('apiError'))
+    } finally {
+      setSaving(false)
+    }
   }
 
   async function updateRole(userId: string, role: Role) {
@@ -747,6 +987,23 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
       method: 'PATCH',
       body: JSON.stringify({ role }),
     }), t('roleUpdated'))
+  }
+
+  async function issuePasswordReset(userId: string) {
+    setSaving(true)
+    setError('')
+    setPasswordResetLink(null)
+    try {
+      const result = await api<{ reset_url: string; email_sent: boolean }>(`/team/${userId}/password-reset`, {
+        method: 'POST',
+      })
+      setPasswordResetLink({ url: result.reset_url, email_sent: result.email_sent })
+      showNotice(t('resetLinkCreated'))
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : t('apiError'))
+    } finally {
+      setSaving(false)
+    }
   }
 
   async function previewCsv(file: File | undefined) {
@@ -824,6 +1081,14 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
     setMobileNav(false)
   }
 
+  const authHeading = authMode === 'signin'
+    ? t('signIn')
+    : authMode === 'invite'
+      ? t('acceptInvite')
+      : authMode === 'forgot'
+        ? t('forgotPassword')
+        : t('resetPassword')
+
   if (!isLoaded) {
     return <main className="loading-screen" dir={direction}><div className="loading-brand"><span className="brand-mark"><Shirt size={21} /></span><strong>NovaStore</strong><p>{t('loading')}</p></div></main>
   }
@@ -841,22 +1106,51 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
           </button>
         </section>
         <section className="auth-form">
-          <div className="auth-form-heading"><h2>{t('signIn')}</h2><p>{t('signInHelp')}</p></div>
-          <SignIn />
+          <div className="auth-form-heading">
+            <h2>{authHeading}</h2>
+            <p>{authMode === 'forgot' ? t('resetRequestHelp') : t('signInHelp')}</p>
+          </div>
+          {authError && <div className="inline-alert" role="alert"><AlertTriangle size={16} /><span>{authError}</span></div>}
+          {authNotice && <div className="toast auth-toast"><Check size={16} />{authNotice}</div>}
+          {authMode === 'signin' && <form className="form-stack auth-fields" onSubmit={submitSignIn}>
+            <label>{t('authEmail')}<input autoComplete="email" type="email" required maxLength={254} value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} /></label>
+            <label>{t('authPassword')}<input autoComplete="current-password" type="password" required value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} /></label>
+            <button className="button button-primary" disabled={authBusy}>{t('signIn')}</button>
+            <button type="button" className="button button-quiet auth-link" onClick={() => changeAuthMode('forgot')}>{t('forgotPassword')}</button>
+          </form>}
+          {authMode === 'invite' && <form className="form-stack auth-fields" onSubmit={submitInvitationAcceptance}>
+            <label>{t('invitedEmail')}<input autoComplete="email" type="email" required maxLength={254} value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} /></label>
+            <label>{t('newPassword')}<input autoComplete="new-password" type="password" required minLength={12} value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} /></label>
+            <label>{t('confirmPassword')}<input autoComplete="new-password" type="password" required minLength={12} value={authPasswordConfirm} onChange={(event) => setAuthPasswordConfirm(event.target.value)} /></label>
+            <small className="auth-hint">{t('passwordRequirement')}</small>
+            <button className="button button-primary" disabled={authBusy || !authTokenValid}>{t('acceptInvite')}</button>
+          </form>}
+          {authMode === 'forgot' && <form className="form-stack auth-fields" onSubmit={submitPasswordResetRequest}>
+            <label>{t('authEmail')}<input autoComplete="email" type="email" required maxLength={254} value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} /></label>
+            <button className="button button-primary" disabled={authBusy}>{t('sendResetLink')}</button>
+            <button type="button" className="button button-quiet auth-link" onClick={() => changeAuthMode('signin')}>{t('backToSignIn')}</button>
+          </form>}
+          {authMode === 'reset' && <form className="form-stack auth-fields" onSubmit={submitPasswordReset}>
+            <label>{t('newPassword')}<input autoComplete="new-password" type="password" required minLength={12} value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} /></label>
+            <label>{t('confirmPassword')}<input autoComplete="new-password" type="password" required minLength={12} value={authPasswordConfirm} onChange={(event) => setAuthPasswordConfirm(event.target.value)} /></label>
+            <small className="auth-hint">{t('passwordRequirement')}</small>
+            <button className="button button-primary" disabled={authBusy || !authTokenValid}>{t('resetPassword')}</button>
+          </form>}
+          {authMode !== 'signin' && authMode !== 'forgot' && !authTokenValid && !authError && <div className="inline-alert" role="alert"><AlertTriangle size={16} /><span>{t('linkInvalid')}</span></div>}
         </section>
       </main>
     )
   }
 
-  if (error && (!profile || profile.clerk_user_id !== user?.id)) {
-    return <main className="loading-screen" dir={direction}><section className="error-card"><AlertTriangle size={24} /><h1>{t('loadError')}</h1><p>{error}</p><button className="button button-primary" onClick={() => {
+  if (error && !profile) {
+    return <main className="loading-screen" dir={direction}><section className="error-card"><AlertTriangle size={24} /><h1>{t('loadError')}</h1><p>{error}</p><div className="modal-actions"><button className="button button-primary" onClick={() => {
       setError('')
       setLoading(true)
       refresh().catch((caught: unknown) => setError(caught instanceof Error ? caught.message : t('apiError'))).finally(() => setLoading(false))
-    }}>{t('retry')}</button></section></main>
+    }}>{t('retry')}</button><button className="button button-outline" disabled={authBusy} onClick={() => void signOut()}>{t('signOut')}</button></div></section></main>
   }
 
-  if (loading || !profile || !dashboard || profile.clerk_user_id !== user?.id) {
+  if (loading || !profile || !dashboard) {
     return <main className="loading-screen" dir={direction}><div className="loading-brand"><span className="brand-mark"><Shirt size={21} /></span><strong>NovaStore</strong><p>{t('loading')}</p></div></main>
   }
 
@@ -902,7 +1196,7 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
         </nav>
         <div className="sidebar-bottom">
           <div className="sidebar-help"><CircleHelp size={17} /><span>{t('generated')}</span></div>
-          <div className="profile-row"><span className="avatar-initial">{(user?.firstName ?? profile.email).slice(0, 1).toUpperCase()}</span><span className="profile-copy"><strong>{user?.fullName ?? profile.email}</strong><small>{roleName(profile.role, language)}</small></span><UserButton /></div>
+          <div className="profile-row"><span className="avatar-initial">{(currentUser?.email ?? profile.email).slice(0, 1).toUpperCase()}</span><span className="profile-copy"><strong>{currentUser?.email ?? profile.email}</strong><small>{roleName(profile.role, language)}</small></span><button className="icon-button" aria-label={t('signOut')} title={t('signOut')} disabled={authBusy} onClick={() => void signOut()}><LogOut size={15} /></button></div>
         </div>
       </aside>
 
@@ -914,7 +1208,7 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
             <button className="icon-button" aria-label="Theme" onClick={() => setDarkMode(!darkMode)}>{darkMode ? <Sun size={18} /> : <Moon size={18} />}</button>
             <span className="topbar-divider" />
             <span className="topbar-role">{roleName(profile.role, language)}</span>
-            <UserButton />
+            <button className="button button-quiet button-small" disabled={authBusy} onClick={() => void signOut()}><LogOut size={15} />{t('signOut')}</button>
           </div>
         </header>
 
@@ -938,7 +1232,7 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
           {page === 'dashboard' && (
             <div className="page-stack">
               <section className="welcome-panel">
-                <div><span className="eyebrow">{dateLabel(today.toISOString(), language)}</span><h2>{language === 'ar' ? `مرحباً، ${user?.firstName ?? ''}` : `Bonjour, ${user?.firstName ?? ''}`}</h2><p>{language === 'ar' ? 'إليك ملخص المخزون وحركة متجرك.' : 'Voici le résumé du stock et de l’activité de votre magasin.'}</p></div>
+                <div><span className="eyebrow">{dateLabel(today.toISOString(), language)}</span><h2>{language === 'ar' ? `مرحباً، ${currentUser?.email ?? ''}` : `Bonjour, ${currentUser?.email ?? ''}`}</h2><p>{language === 'ar' ? 'إليك ملخص المخزون وحركة متجرك.' : 'Voici le résumé du stock et de l’activité de votre magasin.'}</p></div>
                 <span className="welcome-mark"><Boxes size={37} /></span>
               </section>
               <section className="stats-grid">
@@ -1028,13 +1322,15 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
             <div className="page-stack">
               <div className="team-grid">
                 <section className="panel table-panel"><PanelHeading title={t('team')} subtitle={`${team.users.length} ${t('team').toLocaleLowerCase(language)}`} />
-                  {team.users.length ? <div className="table-scroll"><table className="data-table"><thead><tr><th>{t('email')}</th><th>{t('role')}</th><th>{t('date')}</th></tr></thead><tbody>{team.users.map((member) => <tr key={member.id}><td>{member.email}{member.id === profile.id && <span className="you-tag">{language === 'ar' ? 'أنت' : 'Vous'}</span>}</td><td><select className="role-select" value={member.role} disabled={member.id === profile.id || saving} onChange={(event) => updateRole(member.id, event.target.value as Role)}><option value="admin">{t('admin')}</option><option value="storekeeper">{t('storekeeper')}</option><option value="viewer">{t('viewer')}</option></select></td><td>{dateLabel(member.created_at, language)}</td></tr>)}</tbody></table></div> : <EmptyState>{t('noTeam')}</EmptyState>}
+                  {team.users.length ? <div className="table-scroll"><table className="data-table"><thead><tr><th>{t('email')}</th><th>{t('role')}</th><th>{t('date')}</th><th>{t('resetPassword')}</th></tr></thead><tbody>{team.users.map((member) => <tr key={member.id}><td>{member.email}{member.id === profile.id && <span className="you-tag">{language === 'ar' ? 'أنت' : 'Vous'}</span>}</td><td><select className="role-select" value={member.role} disabled={member.id === profile.id || saving} onChange={(event) => updateRole(member.id, event.target.value as Role)}><option value="admin">{t('admin')}</option><option value="storekeeper">{t('storekeeper')}</option><option value="viewer">{t('viewer')}</option></select></td><td>{dateLabel(member.created_at, language)}</td><td><button className="button button-quiet button-small" disabled={saving} onClick={() => void issuePasswordReset(member.id)}>{t('sendResetLink')}</button></td></tr>)}</tbody></table></div> : <EmptyState>{t('noTeam')}</EmptyState>}
                 </section>
                 <section className="panel invite-panel"><div className="panel-heading"><div><h2>{t('invite')}</h2><p>{t('pendingInvitations')}</p></div><span className="panel-icon"><UsersRound size={18} /></span></div>
                   <form className="form-stack" onSubmit={sendInvitation}><label>{t('inviteEmail')}<input type="email" required maxLength={254} value={inviteDraft.email} onChange={(event) => setInviteDraft({ ...inviteDraft, email: event.target.value })} /></label><label>{t('role')}<select value={inviteDraft.role} onChange={(event) => setInviteDraft({ ...inviteDraft, role: event.target.value as Role })}><option value="storekeeper">{t('storekeeper')}</option><option value="viewer">{t('viewer')}</option></select></label><button className="button button-primary" disabled={saving}><Plus size={16} />{t('inviteMember')}</button></form>
                   <div className="pending-list"><h3>{t('pendingInvitations')}</h3>{team.invitations.length ? team.invitations.map((invite) => <div className="pending-row" key={invite.id}><span>{invite.email}</span><span className="role-pill">{roleName(invite.role, language)}</span></div>) : <p className="muted-copy">—</p>}</div>
+                  {invitationLink && <div className="account-link"><p>{!invitationLink.email_sent && t('emailDeliveryNote')}</p><a href={invitationLink.url} referrerPolicy="no-referrer">{invitationLink.url}</a><button className="button button-outline button-small" onClick={() => void copyAccountLink(invitationLink.url)}>{t('copyLink')}</button></div>}
                 </section>
               </div>
+              {passwordResetLink && <section className="panel account-link"><p>{!passwordResetLink.email_sent && t('emailDeliveryNote')}</p><a href={passwordResetLink.url} referrerPolicy="no-referrer">{passwordResetLink.url}</a><button className="button button-outline button-small" onClick={() => void copyAccountLink(passwordResetLink.url)}>{t('copyLink')}</button></section>}
               <section className="panel table-panel"><div className="panel-heading"><div><h2><ShieldCheck size={18} />{t('accessMatrix')}</h2><p>{t('role')}</p></div><select className="select-control" value={teamRoleFilter} onChange={(event) => setTeamRoleFilter(event.target.value as Role)}><option value="admin">{t('admin')}</option><option value="storekeeper">{t('storekeeper')}</option><option value="viewer">{t('viewer')}</option></select></div>
                 <div className="access-grid">{(['dashboard', 'products', 'movements', 'suppliers', 'alerts', 'reports', 'team'] as Page[]).map((item) => {
                   const Icon = pageIcons[item]

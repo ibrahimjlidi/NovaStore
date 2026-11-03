@@ -2,7 +2,18 @@ import { randomUUID } from 'node:crypto'
 import express, { type NextFunction, type Request, type Response } from 'express'
 import helmet from 'helmet'
 import { rateLimit } from 'express-rate-limit'
-import { getAllowedPages, authenticate, createStoreInvitation, requireRole, type AuthenticatedRequest } from './auth.js'
+import {
+  acceptStoreInvitation,
+  authHandler,
+  authenticate,
+  completePasswordReset,
+  createPasswordResetLink,
+  createStoreInvitation,
+  getAllowedPages,
+  requestPasswordReset,
+  requireRole,
+  type AuthenticatedRequest,
+} from './auth.js'
 import { getPool, inTransaction } from './db.js'
 import { HttpError } from './errors.js'
 import { previewProductCsv } from './import.js'
@@ -12,6 +23,8 @@ import {
   movementInput,
   orderInput,
   parseInput,
+  passwordResetCompleteInput,
+  passwordResetRequestInput,
   productInput,
   roleInput,
   supplierInput,
@@ -26,17 +39,76 @@ const reportReaders = requireRole('admin', 'viewer')
 app.disable('x-powered-by')
 app.set('trust proxy', 1)
 app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }))
-app.use(express.json({ limit: '3mb' }))
 app.use('/api', rateLimit({
   windowMs: 60_000,
   limit: 180,
   standardHeaders: 'draft-8',
   legacyHeaders: false,
 }))
+app.use('/api/auth', rateLimit({
+  windowMs: 15 * 60_000,
+  limit: 25,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  skip: (request) => ['GET', 'HEAD', 'OPTIONS'].includes(request.method),
+}), authHandler)
+
+function requireSameOrigin(request: Request, _response: Response, next: NextFunction) {
+  if (['GET', 'HEAD', 'OPTIONS'].includes(request.method)) {
+    next()
+    return
+  }
+  const origin = request.get('origin')
+  const configuredOrigin = process.env.APP_URL
+    ? new URL(process.env.APP_URL).origin
+    : `${request.protocol}://${request.get('host')}`
+  if (!origin || origin !== configuredOrigin) {
+    next(new HttpError(403, 'This request did not come from the application origin.', 'invalid_origin'))
+    return
+  }
+  next()
+}
+
+app.use('/api', requireSameOrigin)
+app.use('/api', express.json({ limit: '3mb' }))
 
 api.get('/health', async (_request, response) => {
   await getPool().query('SELECT 1')
   response.json({ status: 'ok' })
+})
+
+const publicAuthLimit = rateLimit({
+  windowMs: 15 * 60_000,
+  limit: 10,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+})
+
+api.post('/public/invitations/accept', publicAuthLimit, async (request, response) => {
+  const user = await acceptStoreInvitation(request.body)
+  response.status(201).json({ id: user.id })
+})
+
+api.post('/public/password-reset/request', publicAuthLimit, async (request, response) => {
+  const input = parseInput(passwordResetRequestInput, request.body)
+  try {
+    const emailEnabled = await requestPasswordReset(input.email)
+    return response.status(202).json({
+      message: emailEnabled
+        ? 'If the account exists, password reset instructions will be sent.'
+        : 'Password reset email is not configured. Contact your store administrator.',
+      email_enabled: emailEnabled,
+    })
+  } catch (error) {
+    if (!(error instanceof HttpError) || error.code !== 'email_delivery_failed') throw error
+  }
+  response.status(202).json({ message: 'If the account exists, password reset instructions will be sent.' })
+})
+
+api.post('/public/password-reset/complete', publicAuthLimit, async (request, response) => {
+  const input = parseInput(passwordResetCompleteInput, request.body)
+  await completePasswordReset(input.token, input.password)
+  response.json({ message: 'Password updated.' })
 })
 
 api.use(authenticate)
@@ -45,7 +117,6 @@ api.get('/me', (request: AuthenticatedRequest, response) => {
   const user = request.user!
   response.json({
     id: user.id,
-    clerk_user_id: user.clerk_user_id,
     email: user.email,
     role: user.role,
     store: { id: user.store_id, name: user.store_name, city: user.store_city, currency: 'TND' },
@@ -103,14 +174,20 @@ api.get('/dashboard', async (request: AuthenticatedRequest, response) => {
     ),
     getPool().query(
       `WITH stock AS (
-         SELECT v.product_id, SUM(CASE WHEN m.type = 'IN' THEN m.quantity
+         SELECT v.product_id, v.id AS variant_id, SUM(CASE WHEN m.type = 'IN' THEN m.quantity
            WHEN m.type = 'OUT' THEN -m.quantity ELSE m.quantity * m.adjustment_sign END) AS quantity
           FROM product_variants v LEFT JOIN inventory_movements m ON m.variant_id = v.id AND m.store_id = v.store_id
          WHERE v.store_id = $1 GROUP BY v.id
        )
        SELECT p.id, p.sku, p.name_ar, p.name_fr, p.category, p.price_tnd, p.low_stock_threshold,
-              COALESCE(SUM(stock.quantity), 0)::int AS quantity
-       FROM products p LEFT JOIN stock ON stock.product_id = p.id
+              COALESCE(SUM(stock.quantity), 0)::int AS quantity,
+              COALESCE(jsonb_agg(jsonb_build_object(
+                'id', v.id, 'size', v.size, 'color_key', v.color_key,
+                'color_ar', v.color_ar, 'color_fr', v.color_fr, 'color_hex', v.color_hex,
+                'quantity', COALESCE(stock.quantity, 0)
+              ) ORDER BY v.size, v.color_key) FILTER (WHERE v.id IS NOT NULL), '[]'::jsonb) AS variants
+       FROM products p LEFT JOIN product_variants v ON v.product_id = p.id AND v.store_id = p.store_id
+       LEFT JOIN stock ON stock.variant_id = v.id
        WHERE p.store_id = $1 AND p.archived_at IS NULL GROUP BY p.id
        HAVING COALESCE(SUM(stock.quantity), 0) <= p.low_stock_threshold
        ORDER BY quantity ASC LIMIT 8`,
@@ -475,7 +552,7 @@ api.get('/team', admin, async (request: AuthenticatedRequest, response) => {
   )
   const invitations = await getPool().query(
     `SELECT id, email, role, status, created_at FROM invitations
-     WHERE store_id = $1 AND status = 'pending' ORDER BY created_at DESC`,
+     WHERE store_id = $1 AND status = 'pending' AND expires_at > now() ORDER BY created_at DESC`,
     [request.user!.store_id],
   )
   response.json({ users: result.rows, invitations: invitations.rows })
@@ -485,6 +562,11 @@ api.post('/team/invitations', admin, async (request: AuthenticatedRequest, respo
   const input = parseInput(inviteInput, request.body)
   const result = await createStoreInvitation(input.email, input.role, request.user!.store_id, request.user!.id)
   response.status(201).json(result)
+})
+
+api.post('/team/:id/password-reset', admin, async (request: AuthenticatedRequest, response) => {
+  const result = await createPasswordResetLink(String(request.params.id), request.user!.store_id)
+  response.json(result)
 })
 
 api.patch('/team/:id/role', admin, async (request: AuthenticatedRequest, response) => {

@@ -63,9 +63,30 @@ export const orderInput = z.object({
   })).min(1).max(200),
 })
 
+export const emailInput = z.string().trim().email().max(254).transform((value) => value.toLowerCase())
+
 export const inviteInput = z.object({
-  email: z.string().trim().email().max(254).transform((value) => value.toLowerCase()),
+  email: emailInput,
   role: z.enum(['storekeeper', 'viewer']),
+})
+
+export const passwordInput = z.string()
+  .min(12)
+  .refine((value) => new TextEncoder().encode(value).length <= 72)
+
+export const acceptInvitationInput = z.object({
+  token: z.string().regex(/^[a-f0-9]{64}$/i),
+  email: emailInput,
+  password: passwordInput,
+})
+
+export const passwordResetRequestInput = z.object({
+  email: emailInput,
+})
+
+export const passwordResetCompleteInput = z.object({
+  token: z.string().regex(/^[a-f0-9]{64}$/i),
+  password: passwordInput,
 })
 
 export const roleInput = z.object({

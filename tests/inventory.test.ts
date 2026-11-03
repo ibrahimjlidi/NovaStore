@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { applyStockMovement, signedMovementQuantity } from '../server/inventory.js'
 import { previewProductCsv } from '../server/import.js'
-import { productInput } from '../server/validation.js'
+import { acceptInvitationInput, passwordInput, productInput } from '../server/validation.js'
 
 const header = 'sku,name_ar,name_fr,category,price_tnd,low_stock_threshold,size,color_key,color_ar,color_fr,color_hex,opening_quantity'
 
@@ -57,4 +57,27 @@ test('product validation rejects duplicate size/color combinations before databa
     ],
   })
   assert.equal(result.success, false)
+})
+
+test('credential passwords satisfy the minimum and bcrypt UTF-8 byte limit', () => {
+  assert.equal(passwordInput.safeParse('secure-password').success, true)
+  assert.equal(passwordInput.safeParse('short').success, false)
+  assert.equal(passwordInput.safeParse('أ'.repeat(36)).success, true)
+  assert.equal(passwordInput.safeParse('أ'.repeat(37)).success, false)
+})
+
+test('invitation acceptance validates tokens and normalizes the invited email', () => {
+  const result = acceptInvitationInput.safeParse({
+    token: 'a'.repeat(64),
+    email: 'Member@Example.com ',
+    password: 'secure-password',
+  })
+  assert.equal(result.success, true)
+  if (result.success) assert.equal(result.data.email, 'member@example.com')
+
+  assert.equal(acceptInvitationInput.safeParse({
+    token: 'not-a-token',
+    email: 'member@example.com',
+    password: 'secure-password',
+  }).success, false)
 })

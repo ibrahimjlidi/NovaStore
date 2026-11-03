@@ -1,87 +1,105 @@
 # NovaStore — Production inventory management
 
-NovaStore is a bilingual (Arabic RTL / French) inventory application for clothing retailers. Unlike the demo on `main`, this branch uses persistent PostgreSQL data, Clerk sign-in, and a Node.js API. It starts with an empty inventory; product quantities are calculated exclusively from inventory movements.
+NovaStore is a bilingual (Arabic RTL / French) inventory application for clothing retailers. The `production` branch uses PostgreSQL-backed records and an Express API; product quantities are calculated exclusively from inventory movements.
 
 ## Stack
 
 - React, TypeScript, Vite, Tailwind CSS, and Recharts
 - Express API, deployed as a Vercel Node.js function
-- PostgreSQL with transactional migrations
-- Clerk authentication and invitation-based store membership
+- PostgreSQL with transactional schema migrations
+- Auth.js credentials sign-in with bcrypt password hashes and encrypted JWT sessions
 
 ## Prerequisites
 
 - Node.js 20.19.x or 22.12+ and npm
-- A PostgreSQL database (Neon is a managed option)
-- A Clerk application with email sign-in enabled
+- A PostgreSQL database (Neon is one managed option)
+- An Auth.js secret
+- Optional: a Resend account and verified sender for invitation and password-reset emails
 - A Vercel account for deployment
 
 ## Local setup
 
-1. Check out the `production` branch and install packages:
+1. Check out the `production` branch, install dependencies, and create a private environment file:
 
    ```powershell
    git switch production
    npm.cmd install
+   Copy-Item .env.example .env.local
    ```
 
-2. Create a Clerk application and copy its publishable key and secret key. In Clerk, turn off public sign-up if access should be invitation-only. Add `http://localhost:5173` and the eventual Vercel URL to the application's allowed origins.
+2. Set these values in `.env.local`:
 
-3. Create a PostgreSQL database. Copy `.env.example` to `.env` and set:
-
-   - `DATABASE_URL` — the provider's SSL-enabled PostgreSQL connection string
-   - `CLERK_SECRET_KEY` and `VITE_CLERK_PUBLISHABLE_KEY` — from the Clerk dashboard
-   - `BOOTSTRAP_ADMIN_CLERK_USER_ID` — the Clerk user ID of the first store administrator
-   - `STORE_NAME` and `STORE_CITY` — the store created for that administrator
+   - `DATABASE_URL` — SSL-enabled PostgreSQL connection string
+   - `AUTH_SECRET` — unique random secret of at least 32 characters; generate one with `node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"`
+   - `BOOTSTRAP_ADMIN_EMAIL` and `BOOTSTRAP_ADMIN_PASSWORD` — first store administrator; use a unique password with at least 12 characters
+   - `STORE_NAME` and `STORE_CITY` — initial store details
    - `APP_URL=http://localhost:5173`
 
-   Keep `.env` private; it is ignored by Git. Never put the Clerk secret or database URL in a `VITE_` variable.
+   Email delivery is optional. Configure `RESEND_API_KEY` and a verified `EMAIL_FROM` address to email invitations and password-reset links. Without these values, administrators can copy and share one-time links from **Users and roles**.
 
-4. Apply the schema, then start the app:
+3. Apply migrations and start the app:
 
    ```powershell
    npm.cmd run db:migrate
    npm.cmd run dev
    ```
 
-   Open `http://localhost:5173`. The first sign-in using the configured Clerk user ID provisions the store administrator. Invite additional users from **Users and roles**; invited users must sign in with the invited, verified email address.
+   Open `http://localhost:5173`. Migrations create the store and bootstrap administrator when the bootstrap variables are set. Public sign-up is disabled; administrators invite storekeepers and viewers.
 
-5. Add products and stock using the product form, or use **Import CSV** with [`imports/products-template.csv`](./imports/products-template.csv). Opening quantities are imported as incoming movements, not editable stock totals.
+4. Existing Clerk-era team members have no password after migration. Sign in as the bootstrap administrator, open **Users and roles**, and create a one-time reset link for each existing member. Pending Clerk invitations are revoked by migration 002 and must be re-created.
+
+5. Add products and stock using the product form, or import [`imports/products-template.csv`](./imports/products-template.csv). Opening quantities are imported as incoming movements, not editable stock totals.
+
+For a fresh local store, optionally load the fictional Tunisian clothing-store dataset:
+
+```powershell
+npm.cmd run db:seed-demo
+```
+
+This creates 25 demo products, stock variants and movements, five suppliers, and five purchase orders. The seed is transactional and skips without changing data if the store already has any products. Do not use this sample data in production.
+
+## Authentication and account links
+
+- Auth.js credentials sign-in uses a database email/password record, bcrypt password hashes, and an encrypted, 12-hour JWT cookie. Store membership and role are checked against PostgreSQL on each API request.
+- Password reset and invitation tokens are stored as SHA-256 hashes, expire, and can only be used once. Password changes invalidate existing sessions.
+- Auth.js Credentials does not provide account registration or password recovery by itself. NovaStore manages invitation acceptance and password-reset records in PostgreSQL.
+- Email is optional. If Resend is not configured, administrators receive the one-time link in the team UI and must share it securely. The self-service “forgot password” form only sends email when Resend is configured.
+- The Express adapter `@auth/express` is currently experimental; pin and test upgrades before production rollout.
 
 ## Vercel deployment
 
-1. Push the `production` branch to GitHub and import the repository in Vercel. Set the project root to `./`, framework preset to **Vite**, build command to `npm run build`, and output directory to `dist`.
-2. Add these environment variables to Vercel for Production (and Preview if needed):
+1. Push the `production` branch to GitHub and import the repository in Vercel. Use the Vite preset, build command `npm run build`, and output directory `dist`.
+2. Add environment variables in Vercel for Production (and Preview, if applicable):
 
    | Variable | Purpose |
    | --- | --- |
    | `DATABASE_URL` | Managed PostgreSQL connection string |
-   | `CLERK_SECRET_KEY` | Server-side Clerk key |
-   | `VITE_CLERK_PUBLISHABLE_KEY` | Public Clerk key, available during the Vite build |
-   | `BOOTSTRAP_ADMIN_CLERK_USER_ID` | Clerk ID of the first administrator |
+   | `AUTH_SECRET` | Unique random secret of at least 32 characters |
+   | `BOOTSTRAP_ADMIN_EMAIL` | First administrator email |
+   | `BOOTSTRAP_ADMIN_PASSWORD` | First administrator password (at least 12 characters) |
    | `STORE_NAME` | Initial store name (optional; defaults to NovaStore) |
    | `STORE_CITY` | Initial store city (optional; defaults to Tunis) |
-   | `APP_URL` | The deployed origin, for example `https://your-store.vercel.app` |
+   | `APP_URL` | Deployed origin, e.g. `https://your-store.vercel.app` |
+   | `RESEND_API_KEY` | Optional Resend API key for account emails |
+   | `EMAIL_FROM` | Optional verified sender address for account emails |
 
-   Add the Vercel origin to Clerk's allowed origins and redeploy after changing environment variables.
-
-3. Apply database migrations once, from a trusted local machine configured with the same production `DATABASE_URL`:
+3. Apply migrations once from a trusted local machine configured with the production `DATABASE_URL` and the bootstrap administrator variables:
 
    ```powershell
    npm.cmd run db:migrate
    ```
 
-4. Deploy the `production` branch. The first administrator sign-in creates the store and membership. Vercel serves `/api/*` from the Express function and the React app for browser routes.
+4. Deploy the `production` branch. Vercel serves `/api/*` through the Express function and rewrites browser routes to the React app.
 
-Do not use a personal development database URL for the Vercel production environment. Keep database and Clerk secrets in Vercel's encrypted environment settings, not in Git.
+Keep database and authentication secrets in encrypted environment settings, not Git or `VITE_` variables. Do not use a personal development database for production.
 
 ## Workflows
 
-- **Products:** search, filter by category/size/color/stock status, maintain variants, thresholds, and archive products without deleting their movement history.
+- **Products:** search, filter by category/size/color/stock status, maintain variants and thresholds, and archive products without removing movement history.
 - **Stock movements:** create incoming, outgoing, or signed adjustment entries. The API locks the variant and rejects any operation that would make stock negative.
 - **Purchase orders:** draft, send, then receive orders. Receiving is transactional and creates one incoming movement for every order line.
 - **Alerts and reports:** low/out-of-stock products, inventory valuation, period-based movement charts, CSV export, and browser print/PDF.
-- **Users and roles:** invite members and assign Admin, Storekeeper, or Viewer access. The API enforces the same role boundaries as the navigation.
+- **Users and roles:** invite members and assign Admin, Storekeeper, or Viewer access. The API enforces the same role boundaries as navigation.
 - **Languages and theme:** Arabic is the default, with a French switch and light/dark mode.
 
 ## Validation
@@ -90,6 +108,7 @@ Do not use a personal development database URL for the Vercel production environ
 npm.cmd test
 npm.cmd run lint
 npm.cmd run build
+npm.cmd audit
 ```
 
-The test suite covers movement balance rules and CSV preview validation. Database-backed flows require a configured PostgreSQL database and Clerk application to exercise end-to-end.
+Database-backed flows require a configured PostgreSQL database. The automated test suite covers movement balance rules and CSV preview validation.

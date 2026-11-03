@@ -1,8 +1,11 @@
-import 'dotenv/config'
+import dotenv from 'dotenv'
 import { readdir, readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import { getPool } from './db.js'
+
+dotenv.config({ path: '.env.local' })
+dotenv.config()
 
 const migrationsDirectory = fileURLToPath(new URL('../migrations/', import.meta.url))
 const pool = getPool()
@@ -34,6 +37,9 @@ try {
       client.release()
     }
   }
+  const { provisionBootstrapAdmin } = await import('./auth.js')
+  await provisionBootstrapAdmin()
+  console.log('Bootstrap administrator verified.')
 } finally {
   await pool.end()
 }
