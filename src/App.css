@@ -768,36 +768,15 @@
   font-size: 9px;
 }
 
-.product-glyph {
-  display: grid;
-  width: 35px;
-  height: 35px;
-  flex: 0 0 35px;
-  place-items: center;
-  color: #5f7a66;
-  background: #eff3eb;
-  border-radius: 9px;
-}
-
-.glyph-jeans {
-  color: #6b8196;
-  background: #edf1f6;
-}
-
-.glyph-dress {
-  color: #a47570;
-  background: #f6eeeb;
-}
-
-.glyph-jacket,
-.glyph-accessories {
-  color: #9a805a;
-  background: #f5f0e8;
-}
-
-.glyph-shoes {
-  color: #7e718f;
-  background: #f1eef5;
+.product-image {
+  display: block;
+  width: 42px;
+  height: 50px;
+  flex: 0 0 42px;
+  object-fit: cover;
+  background: var(--surface-alt);
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
 }
 
 .sku-code {

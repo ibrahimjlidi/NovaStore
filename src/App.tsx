@@ -238,6 +238,14 @@ const pageIcons = {
 }
 
 const categories: Category[] = ['tshirt', 'jeans', 'dress', 'jacket', 'shoes', 'accessories']
+const productPhotos: Record<Category, string> = {
+  tshirt: '/products/tshirt.webp',
+  jeans: '/products/jeans.webp',
+  dress: '/products/dress.webp',
+  jacket: '/products/jacket.webp',
+  shoes: '/products/shoes.webp',
+  accessories: '/products/accessories.webp',
+}
 const sizes: Size[] = ['S', 'M', 'L', 'XL', 'ONE_SIZE']
 const rolePages: Record<Role, Page[]> = {
   admin: ['dashboard', 'products', 'movements', 'suppliers', 'alerts', 'reports', 'team'],
@@ -1452,6 +1460,6 @@ function ProductTable({ products, language, t, statusFor, formattedMoney, empty,
 }) {
   return products.length ? <div className="table-scroll"><table className="data-table"><thead><tr><th>{t('product')}</th><th>{t('sku')}</th><th>{t('category')}</th><th className="number-cell">{t('price')}</th><th className="number-cell">{t('quantity')}</th><th>{t('status')}</th>{actions && <th>{t('actions')}</th>}</tr></thead><tbody>{products.map((product) => {
     const status = statusFor(product)
-    return <tr key={product.id}><td><div className="product-cell"><span className={`product-glyph glyph-${product.category}`}><Shirt size={18} /></span><span><strong>{productName(product, language)}</strong><small>{product.variants.length} · {language === 'ar' ? 'متغيرات' : 'variantes'}</small></span></div></td><td><span className="sku-code">{product.sku}</span></td><td>{categoryName(product.category, language)}</td><td className="number-cell">{formattedMoney(product.price_tnd)}</td><td className="number-cell"><strong>{product.quantity}</strong> <span className="muted-copy">{t('units')}</span></td><td><StatusBadge status={status} label={t(status as keyof typeof copy.ar)} /></td>{actions && <td>{actions(product)}</td>}</tr>
+    return <tr key={product.id}><td><div className="product-cell"><img className="product-image" src={productPhotos[product.category]} alt={productName(product, language)} loading="lazy" decoding="async" /><span><strong>{productName(product, language)}</strong><small>{product.variants.length} · {language === 'ar' ? 'متغيرات' : 'variantes'}</small></span></div></td><td><span className="sku-code">{product.sku}</span></td><td>{categoryName(product.category, language)}</td><td className="number-cell">{formattedMoney(product.price_tnd)}</td><td className="number-cell"><strong>{product.quantity}</strong> <span className="muted-copy">{t('units')}</span></td><td><StatusBadge status={status} label={t(status as keyof typeof copy.ar)} /></td>{actions && <td>{actions(product)}</td>}</tr>
   })}</tbody></table></div> : <EmptyState>{empty}</EmptyState>
 }
