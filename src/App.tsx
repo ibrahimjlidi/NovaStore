@@ -206,10 +206,23 @@ class ApiError extends Error {
   }
 }
 
+async function readJsonResponse<T>(response: Response): Promise<T> {
+  const text = await response.text()
+  try {
+    return (text ? JSON.parse(text) : undefined) as T
+  } catch {
+    const isHtml = response.headers.get('content-type')?.includes('text/html') || /^\s*</.test(text)
+    if (isHtml) {
+      throw new Error('The API returned a web page instead of JSON. Start both servers with "npm.cmd run dev" and try again.')
+    }
+    throw new Error('The API returned an invalid response. Check the server logs and try again.')
+  }
+}
+
 async function getAuthCsrfToken() {
   const response = await fetch('/api/auth/csrf', { credentials: 'same-origin' })
   if (!response.ok) throw new Error('Unable to start a secure sign-in request.')
-  const body = await response.json() as { csrfToken?: string }
+  const body = await readJsonResponse<{ csrfToken?: string }>(response)
   if (!body.csrfToken) throw new Error('Unable to start a secure sign-in request.')
   return body.csrfToken
 }
@@ -508,8 +521,7 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
         ...init.headers,
       },
     })
-    const text = await response.text()
-    const body: unknown = text ? JSON.parse(text) : undefined
+    const body = await readJsonResponse<unknown>(response)
     if (!response.ok) {
       const failure = body && typeof body === 'object' ? body as ApiFailureBody : {}
       const message = failure.error
@@ -553,12 +565,12 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
           callbackUrl: window.location.origin,
         }),
       })
-      const result = await response.json() as { url?: string }
+      const result = await readJsonResponse<{ url?: string }>(response)
       if (!response.ok || !result.url || new URL(result.url, window.location.origin).searchParams.has('error')) {
         throw new Error(t('authFailed'))
       }
       const sessionResponse = await fetch('/api/auth/session', { credentials: 'same-origin' })
-      const session = await sessionResponse.json() as { user?: { email?: string | null } } | null
+      const session = await readJsonResponse<{ user?: { email?: string | null } } | null>(sessionResponse)
       if (!sessionResponse.ok || !session?.user) throw new Error(t('authFailed'))
       setCurrentUser({ email: session.user.email || authEmail.trim().toLowerCase() })
       setIsSignedIn(true)
@@ -693,7 +705,7 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
     void fetch('/api/auth/session', { credentials: 'same-origin' })
       .then(async (response) => {
         if (!response.ok) throw new Error(t('apiError'))
-        return response.json() as Promise<{ user?: { email?: string | null } } | null>
+        return readJsonResponse<{ user?: { email?: string | null } } | null>(response)
       })
       .then((session) => {
         if (!active) return
