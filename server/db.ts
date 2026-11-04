@@ -3,12 +3,12 @@ import { HttpError } from './errors.js'
 
 let pool: Pool | undefined
 
-export function getPool() {
-  if (!process.env.DATABASE_URL) {
+export function getPool(connectionString = process.env.DATABASE_URL) {
+  if (!connectionString) {
     throw new HttpError(503, 'DATABASE_URL is not configured.', 'configuration_error')
   }
   pool ??= new Pool({
-    connectionString: process.env.DATABASE_URL,
+    connectionString,
     max: process.env.VERCEL ? 4 : 10,
     idleTimeoutMillis: 20_000,
     connectionTimeoutMillis: 10_000,

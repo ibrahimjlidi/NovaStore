@@ -5,7 +5,7 @@ import { applyMigrations } from './migration-runner.js'
 dotenv.config({ path: '.env.local' })
 dotenv.config()
 
-const pool = getPool()
+const pool = getPool(process.env.DATABASE_URL_UNPOOLED || process.env.DATABASE_URL)
 
 try {
   await applyMigrations(pool)

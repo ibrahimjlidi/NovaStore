@@ -73,7 +73,8 @@ This creates 25 demo products, stock variants and movements, five suppliers, and
 
    | Variable | Purpose |
    | --- | --- |
-   | `DATABASE_URL` | Managed PostgreSQL connection string |
+   | `DATABASE_URL` | Managed PostgreSQL application connection string; pooled is recommended |
+   | `DATABASE_URL_UNPOOLED` | Direct, non-pooled PostgreSQL URL used for migrations |
    | `AUTH_SECRET` | Unique random secret of at least 32 characters |
    | `BOOTSTRAP_ADMIN_EMAIL` | First administrator email |
    | `BOOTSTRAP_ADMIN_PASSWORD` | First administrator password (at least 12 characters) |
@@ -83,15 +84,9 @@ This creates 25 demo products, stock variants and movements, five suppliers, and
    | `RESEND_API_KEY` | Optional Resend API key for account emails |
    | `EMAIL_FROM` | Optional verified sender address for account emails |
 
-3. Apply migrations once from a trusted local machine configured with the production `DATABASE_URL` and the bootstrap administrator variables:
+3. Vercel runs `npm run db:migrate` before `npm run build` for each deployment. A migration failure stops the build, preventing deployment of code against an incompatible schema. Set both database URLs for every Vercel environment you deploy; Preview must use a separate preview database, never the production URL. Migrations are transactional and skip versions already recorded in `schema_migrations`.
 
-   ```powershell
-   npm.cmd run db:migrate
-   ```
-
-   Apply all pending migrations before deploying code that depends on their schema changes.
-
-4. Deploy the `production` branch. Vercel serves `/api/*` through the Express function and rewrites browser routes to the React app.
+4. Deploy the `production` branch. Vercel serves `/api/*` through the Express function and rewrites browser routes to the React app. For local setup, `npm.cmd run db:migrate` still applies pending migrations before starting the development servers.
 
 Keep database and authentication secrets in encrypted environment settings, not Git or `VITE_` variables. Do not use a personal development database for production.
 
