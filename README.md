@@ -97,9 +97,9 @@ Keep database and authentication secrets in encrypted environment settings, not 
 
 ## Workflows
 
-- **Products:** search, filter by category/size/color/stock status, maintain variants and thresholds, and archive products without removing movement history.
-- **Stock movements:** create incoming, outgoing, or signed adjustment entries. The API locks the variant and rejects any operation that would make stock negative.
-- **Purchase orders:** draft, send, then receive orders. Receiving is transactional and creates one incoming movement for every order line.
+- **Products:** search, filter by category/size/color/stock status, maintain variants and product-level thresholds with optional per-variant overrides, and archive products without removing movement history.
+- **Stock movements:** create incoming, outgoing, or signed adjustment entries and browse the 90-day history in pages. The API locks the variant and rejects any operation that would make stock negative.
+- **Purchase orders:** create and edit or cancel drafts, then send and receive orders. Receiving is transactional and creates one incoming movement for every order line.
 - **Alerts and reports:** low/out-of-stock products, inventory valuation, period-based movement charts, CSV export, and browser print/PDF.
 - **Users and roles:** administrators can create accounts directly with an initial password or invite members by email, then assign Admin, Storekeeper, or Viewer access. The API enforces the same role boundaries as navigation.
 - **Team member CRUD:** administrators can list members, change roles, issue password-reset links, and deactivate/reactivate accounts. Deactivation revokes active sessions while retaining inventory and purchase-order history; the final active administrator cannot be removed or demoted.

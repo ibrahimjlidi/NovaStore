@@ -63,12 +63,14 @@ test('product creation, update, validation and archive work through HTTP', async
     category: 'jeans',
     price_tnd: 80,
     low_stock_threshold: 4,
-    variants: [{ size: 'L', color_key: 'bleu', color_ar: 'أزرق', color_fr: 'Bleu', color_hex: '#526D91' }],
+    variants: [{ size: 'L', color_key: 'bleu', color_ar: 'أزرق', color_fr: 'Bleu', color_hex: '#526D91', low_stock_threshold: 7 }],
   }
   const create = await api.post('/api/products', { data: productInput })
   expect(create.status()).toBe(201)
   const product = await create.json()
   expect(product.sku).toBe(productInput.sku)
+  const listed = await (await api.get(`/api/products?q=${productInput.sku}`)).json()
+  expect(listed[0].variants[0].low_stock_threshold).toBe(7)
   const update = await api.put(`/api/products/${product.id}`, { data: { ...productInput, name_fr: 'Produit modifié' } })
   expect(update.status()).toBe(200)
   expect((await update.json()).name_fr).toBe('Produit modifié')
@@ -94,11 +96,26 @@ test('stock movement creation, listing, insufficient stock and validation are en
   })
   expect(oversell.status()).toBe(409)
   expect((await oversell.json()).code).toBe('insufficient_stock')
-  expect(await (await api.get('/api/movements?days=90')).json()).toEqual(expect.arrayContaining([
+  const firstPage = await (await api.get('/api/movements?days=90')).json()
+  expect(firstPage).toMatchObject({ page: 1, page_size: 50, has_more: false })
+  expect(firstPage.items).toEqual(expect.arrayContaining([
     expect.objectContaining({ note: 'e2e-add' }),
   ]))
+  const paginationMovements = await Promise.all(Array.from({ length: 51 }, (_, index) =>
+    api.post('/api/movements', {
+      data: { variant_id: data.variantId, type: 'IN', quantity: 1, note: `page-${index}` },
+    }),
+  ))
+  expect(paginationMovements.every((response) => response.status() === 201)).toBe(true)
+  const populatedFirstPage = await (await api.get('/api/movements?days=90&page=1')).json()
+  expect(populatedFirstPage.items).toHaveLength(50)
+  expect(populatedFirstPage.has_more).toBe(true)
+  const secondPage = await (await api.get('/api/movements?days=90&page=2')).json()
+  expect(secondPage.items.length).toBeGreaterThan(0)
+  expect(secondPage.has_more).toBe(false)
+  expect((await api.get('/api/movements?page=0')).status()).toBe(400)
   const invalidDays = await api.get('/api/movements?days=not-a-number')
-  expect(invalidDays.ok()).toBeTruthy()
+  expect(invalidDays.status()).toBe(400)
 })
 
 test('supplier and purchase-order lifecycle updates stock exactly once', async () => {
@@ -121,20 +138,66 @@ test('supplier and purchase-order lifecycle updates stock exactly once', async (
   })
   expect(orderResponse.status()).toBe(201)
   const order = await orderResponse.json()
+  const revised = await api.put(`/api/purchase-orders/${order.id}`, {
+    data: {
+      supplier_id: data.supplierId,
+      lines: [{ variant_id: data.variantId, quantity: 6, unit_cost_tnd: 14.5 }],
+    },
+  })
+  expect(revised.status()).toBe(200)
+  const revisedOrders = await (await api.get('/api/purchase-orders')).json()
+  expect(revisedOrders).toEqual(expect.arrayContaining([
+    expect.objectContaining({
+      id: order.id,
+      total_tnd: '87.000',
+      lines: [expect.objectContaining({ quantity: 6, unit_cost_tnd: 14.5 })],
+    }),
+  ]))
   expect((await api.patch(`/api/purchase-orders/${order.id}/status`, { data: { status: 'received' } })).status()).toBe(409)
   expect((await api.patch(`/api/purchase-orders/${order.id}/status`, { data: { status: 'sent' } })).status()).toBe(200)
+  expect((await api.put(`/api/purchase-orders/${order.id}`, {
+    data: { supplier_id: data.supplierId, lines: [{ variant_id: data.variantId, quantity: 1, unit_cost_tnd: 1 }] },
+  })).status()).toBe(409)
+  expect((await api.delete(`/api/purchase-orders/${order.id}`)).status()).toBe(409)
   expect((await api.patch(`/api/purchase-orders/${order.id}/status`, { data: { status: 'received' } })).status()).toBe(200)
   expect((await api.patch(`/api/purchase-orders/${order.id}/status`, { data: { status: 'received' } })).status()).toBe(409)
   expect((await api.get('/api/purchase-orders')).status()).toBe(200)
+
+  const draft = await api.post('/api/purchase-orders', {
+    data: { supplier_id: data.supplierId, lines: [{ variant_id: data.variantId, quantity: 1, unit_cost_tnd: 1 }] },
+  })
+  const draftId = (await draft.json()).id as string
+  expect((await api.delete(`/api/purchase-orders/${draftId}`)).status()).toBe(204)
+  expect((await api.put(`/api/purchase-orders/${draftId}`, {
+    data: { supplier_id: data.supplierId, lines: [{ variant_id: data.variantId, quantity: 1, unit_cost_tnd: 1 }] },
+  })).status()).toBe(404)
 })
 
 test('alerts, inventory reports, and report period query return expected data', async () => {
+  const product = await (await api.get(`/api/products?q=E2E-BASE-001`)).json()
+  expect((await api.put(`/api/products/${data.productId}`, {
+    data: {
+      sku: 'E2E-BASE-001',
+      name_ar: 'منتج اختبار',
+      name_fr: 'Produit de test',
+      category: 'tshirt',
+      price_tnd: 25.5,
+      low_stock_threshold: 5,
+      variants: [{
+        size: 'M', color_key: 'noir', color_ar: 'أسود', color_fr: 'Noir', color_hex: '#292D32',
+        low_stock_threshold: 15,
+      }],
+    },
+  })).status()).toBe(200)
+  expect(product[0].variants[0].low_stock_threshold).toBeNull()
   const movement = await api.post('/api/movements', {
     data: { variant_id: data.variantId, type: 'OUT', quantity: 10 },
   })
   expect(movement.status()).toBe(201)
   const alerts = await (await api.get('/api/alerts')).json()
-  expect(alerts).toEqual(expect.arrayContaining([expect.objectContaining({ id: data.productId, quantity: 2 })]))
+  expect(alerts).toEqual(expect.arrayContaining([
+    expect.objectContaining({ id: data.productId, variant_id: data.variantId, quantity: 2, low_stock_threshold: 15 }),
+  ]))
   const reportResponse = await api.get('/api/reports/inventory?days=7')
   expect(reportResponse.status()).toBe(200)
   const report = await reportResponse.json()
@@ -227,9 +290,11 @@ test('team member CRUD deactivates access, preserves records, and supports react
     expect(membersAfterDelete.users).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: data.storekeeperId, disabled_at: expect.any(String) }),
     ]))
-    expect(await (await api.get('/api/movements?days=90')).json()).toEqual(expect.arrayContaining([
+    expect(await (await api.get('/api/movements?days=90')).json()).toMatchObject({
+      items: expect.arrayContaining([
       expect.objectContaining({ note: 'created-by-deactivated-member', created_by_email: data.storekeeperEmail }),
-    ]))
+      ]),
+    })
     expect((await api.post(`/api/team/${data.storekeeperId}/password-reset`)).status()).toBe(404)
     expect((await memberSession.get('/api/me')).status()).toBe(401)
 

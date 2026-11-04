@@ -28,6 +28,16 @@ export async function resetStore(context: E2eContext) {
        WHERE store_id = $1`,
       [context.storeId, context.adminId, context.storekeeperId],
     )
+    await pool.query(
+      `UPDATE products SET low_stock_threshold = 5
+       WHERE store_id = $1 AND id = $2`,
+      [context.storeId, context.productId],
+    )
+    await pool.query(
+      `UPDATE product_variants SET low_stock_threshold = NULL
+       WHERE store_id = $1 AND product_id = $2`,
+      [context.storeId, context.productId],
+    )
     for (const account of [
       { id: context.adminId, password: context.adminPassword },
       { id: context.storekeeperId, password: context.storekeeperPassword },

@@ -131,15 +131,16 @@ api.get('/dashboard', async (request: AuthenticatedRequest, response) => {
   const [metrics, categoryValues, movementDays, lowProducts] = await Promise.all([
     getPool().query(
       `WITH variant_stock AS (
-         SELECT v.product_id,
-                SUM(CASE WHEN m.type = 'IN' THEN m.quantity
+         SELECT v.id, v.product_id, v.low_stock_threshold,
+                COALESCE(SUM(CASE WHEN m.type = 'IN' THEN m.quantity
                          WHEN m.type = 'OUT' THEN -m.quantity
-                         ELSE m.quantity * m.adjustment_sign END) AS quantity
+                         ELSE m.quantity * m.adjustment_sign END), 0) AS quantity
          FROM product_variants v
          LEFT JOIN inventory_movements m ON m.variant_id = v.id AND m.store_id = v.store_id
          WHERE v.store_id = $1 GROUP BY v.id
        ), product_stock AS (
-         SELECT p.id, p.low_stock_threshold, p.price_tnd, COALESCE(SUM(vs.quantity), 0) AS quantity
+         SELECT p.id, p.price_tnd, COALESCE(SUM(vs.quantity), 0) AS quantity,
+                COALESCE(BOOL_OR(vs.quantity <= COALESCE(vs.low_stock_threshold, p.low_stock_threshold)), false) AS has_low_stock
          FROM products p LEFT JOIN variant_stock vs ON vs.product_id = p.id
          WHERE p.store_id = $1 AND p.archived_at IS NULL
          GROUP BY p.id
@@ -147,7 +148,7 @@ api.get('/dashboard', async (request: AuthenticatedRequest, response) => {
        SELECT COUNT(*)::int AS product_count,
               COALESCE(SUM(quantity), 0)::int AS unit_count,
               COALESCE(SUM(quantity * price_tnd), 0)::numeric(14,3) AS inventory_value,
-              COUNT(*) FILTER (WHERE quantity <= low_stock_threshold)::int AS low_count,
+              COUNT(*) FILTER (WHERE has_low_stock)::int AS low_count,
               COUNT(*) FILTER (WHERE quantity = 0)::int AS out_count,
               (SELECT COUNT(*)::int FROM inventory_movements WHERE store_id = $1 AND created_at >= date_trunc('day', now())) AS today_movements
        FROM product_stock`,
@@ -176,8 +177,10 @@ api.get('/dashboard', async (request: AuthenticatedRequest, response) => {
     ),
     getPool().query(
       `WITH stock AS (
-         SELECT v.product_id, v.id AS variant_id, SUM(CASE WHEN m.type = 'IN' THEN m.quantity
-           WHEN m.type = 'OUT' THEN -m.quantity ELSE m.quantity * m.adjustment_sign END) AS quantity
+         SELECT v.product_id, v.id AS variant_id, v.low_stock_threshold,
+                COALESCE(SUM(CASE WHEN m.type = 'IN' THEN m.quantity
+                    WHEN m.type = 'OUT' THEN -m.quantity
+                    ELSE m.quantity * m.adjustment_sign END), 0) AS quantity
           FROM product_variants v LEFT JOIN inventory_movements m ON m.variant_id = v.id AND m.store_id = v.store_id
          WHERE v.store_id = $1 GROUP BY v.id
        )
@@ -186,12 +189,13 @@ api.get('/dashboard', async (request: AuthenticatedRequest, response) => {
               COALESCE(jsonb_agg(jsonb_build_object(
                 'id', v.id, 'size', v.size, 'color_key', v.color_key,
                 'color_ar', v.color_ar, 'color_fr', v.color_fr, 'color_hex', v.color_hex,
-                'quantity', COALESCE(stock.quantity, 0)
+                'quantity', COALESCE(stock.quantity, 0),
+                'low_stock_threshold', v.low_stock_threshold
               ) ORDER BY v.size, v.color_key) FILTER (WHERE v.id IS NOT NULL), '[]'::jsonb) AS variants
        FROM products p LEFT JOIN product_variants v ON v.product_id = p.id AND v.store_id = p.store_id
        LEFT JOIN stock ON stock.variant_id = v.id
        WHERE p.store_id = $1 AND p.archived_at IS NULL GROUP BY p.id
-       HAVING COALESCE(SUM(stock.quantity), 0) <= p.low_stock_threshold
+       HAVING COALESCE(BOOL_OR(stock.quantity <= COALESCE(stock.low_stock_threshold, p.low_stock_threshold)), false)
        ORDER BY quantity ASC LIMIT 8`,
       [storeId],
     ),
@@ -211,9 +215,10 @@ api.get('/products', async (request: AuthenticatedRequest, response) => {
   const lowOnly = request.query.low === 'true'
   const result = await getPool().query(
     `WITH variant_stock AS (
-       SELECT v.id, SUM(CASE WHEN m.type = 'IN' THEN m.quantity
+       SELECT v.id, v.low_stock_threshold,
+              COALESCE(SUM(CASE WHEN m.type = 'IN' THEN m.quantity
                              WHEN m.type = 'OUT' THEN -m.quantity
-                             ELSE m.quantity * m.adjustment_sign END)::int AS quantity
+                             ELSE m.quantity * m.adjustment_sign END), 0)::int AS quantity
        FROM product_variants v
        LEFT JOIN inventory_movements m ON m.variant_id = v.id AND m.store_id = v.store_id
        WHERE v.store_id = $1 GROUP BY v.id
@@ -224,7 +229,8 @@ api.get('/products', async (request: AuthenticatedRequest, response) => {
             COALESCE(jsonb_agg(jsonb_build_object(
               'id', v.id, 'size', v.size, 'color_key', v.color_key,
               'color_ar', v.color_ar, 'color_fr', v.color_fr, 'color_hex', v.color_hex,
-              'quantity', COALESCE(vs.quantity, 0)
+              'quantity', COALESCE(vs.quantity, 0),
+              'low_stock_threshold', v.low_stock_threshold
             ) ORDER BY v.size, v.color_key) FILTER (WHERE v.id IS NOT NULL), '[]'::jsonb) AS variants
      FROM products p
      LEFT JOIN product_variants v ON v.product_id = p.id AND v.store_id = p.store_id
@@ -233,7 +239,7 @@ api.get('/products', async (request: AuthenticatedRequest, response) => {
        AND ($2 = '' OR p.sku ILIKE $3 OR p.name_ar ILIKE $3 OR p.name_fr ILIKE $3)
        AND ($4 = '' OR p.category = $4)
      GROUP BY p.id
-     HAVING NOT $5 OR COALESCE(SUM(vs.quantity), 0) <= p.low_stock_threshold
+     HAVING NOT $5 OR COALESCE(BOOL_OR(COALESCE(vs.quantity, 0) <= COALESCE(v.low_stock_threshold, p.low_stock_threshold)), false)
      ORDER BY p.created_at DESC LIMIT 500`,
     [storeId, query, `%${query}%`, category, lowOnly],
   )
@@ -251,9 +257,9 @@ api.post('/products', inventoryUsers, async (request: AuthenticatedRequest, resp
     )
     for (const variant of input.variants) {
       await client.query(
-        `INSERT INTO product_variants (store_id, product_id, size, color_key, color_ar, color_fr, color_hex)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [request.user!.store_id, inserted.rows[0].id, variant.size, variant.color_key, variant.color_ar, variant.color_fr, variant.color_hex],
+        `INSERT INTO product_variants (store_id, product_id, size, color_key, color_ar, color_fr, color_hex, low_stock_threshold)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [request.user!.store_id, inserted.rows[0].id, variant.size, variant.color_key, variant.color_ar, variant.color_fr, variant.color_hex, variant.low_stock_threshold],
       )
     }
     return { ...inserted.rows[0], variants: input.variants.map((variant) => ({ ...variant, quantity: 0 })) }
@@ -289,11 +295,12 @@ api.put('/products/:id', inventoryUsers, async (request: AuthenticatedRequest, r
     }
     for (const variant of input.variants) {
       await client.query(
-        `INSERT INTO product_variants (store_id, product_id, size, color_key, color_ar, color_fr, color_hex)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
+        `INSERT INTO product_variants (store_id, product_id, size, color_key, color_ar, color_fr, color_hex, low_stock_threshold)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
          ON CONFLICT (product_id, size, color_key)
-         DO UPDATE SET color_ar = EXCLUDED.color_ar, color_fr = EXCLUDED.color_fr, color_hex = EXCLUDED.color_hex`,
-        [request.user!.store_id, productId, variant.size, variant.color_key, variant.color_ar, variant.color_fr, variant.color_hex],
+         DO UPDATE SET color_ar = EXCLUDED.color_ar, color_fr = EXCLUDED.color_fr, color_hex = EXCLUDED.color_hex,
+                       low_stock_threshold = EXCLUDED.low_stock_threshold`,
+        [request.user!.store_id, productId, variant.size, variant.color_key, variant.color_ar, variant.color_fr, variant.color_hex, variant.low_stock_threshold],
       )
     }
     return product.rows[0]
@@ -313,8 +320,18 @@ api.delete('/products/:id', admin, async (request: AuthenticatedRequest, respons
 })
 
 api.get('/movements', inventoryUsers, async (request: AuthenticatedRequest, response) => {
-  const days = Math.min(365, Math.max(1, Number(request.query.days) || 30))
-  const result = await getPool().query(
+  const parsedDays = Number(request.query.days ?? 30)
+  const parsedPage = Number(request.query.page ?? 1)
+  if (!Number.isInteger(parsedDays) || parsedDays < 1 || parsedDays > 365) {
+    throw new HttpError(400, 'Days must be an integer from 1 to 365.', 'validation_error')
+  }
+  if (!Number.isInteger(parsedPage) || parsedPage < 1 || parsedPage > 1_000_000) {
+    throw new HttpError(400, 'Page must be an integer from 1 to 1000000.', 'validation_error')
+  }
+  const days = parsedDays
+  const pageSize = 50
+  const [result, count] = await Promise.all([
+    getPool().query(
     `SELECT m.id, m.type, m.quantity, m.adjustment_sign, m.note, m.created_at,
             p.id AS product_id, p.sku, p.name_ar, p.name_fr,
             v.id AS variant_id, v.size, v.color_ar, v.color_fr, v.color_hex,
@@ -324,10 +341,17 @@ api.get('/movements', inventoryUsers, async (request: AuthenticatedRequest, resp
      JOIN products p ON p.id = v.product_id
      JOIN store_users u ON u.id = m.created_by
      WHERE m.store_id = $1 AND m.created_at >= now() - ($2::int * interval '1 day')
-     ORDER BY m.created_at DESC LIMIT 1000`,
-    [request.user!.store_id, days],
-  )
-  response.json(result.rows)
+     ORDER BY m.created_at DESC, m.id DESC LIMIT $3 OFFSET $4`,
+      [request.user!.store_id, days, pageSize, (parsedPage - 1) * pageSize],
+    ),
+    getPool().query<{ total: string }>(
+      `SELECT COUNT(*)::text AS total FROM inventory_movements
+       WHERE store_id = $1 AND created_at >= now() - ($2::int * interval '1 day')`,
+      [request.user!.store_id, days],
+    ),
+  ])
+  const total = Number(count.rows[0].total)
+  response.json({ items: result.rows, page: parsedPage, page_size: pageSize, total, has_more: parsedPage * pageSize < total })
 })
 
 api.post('/movements', inventoryUsers, async (request: AuthenticatedRequest, response) => {
@@ -437,6 +461,65 @@ api.post('/purchase-orders', inventoryUsers, async (request: AuthenticatedReques
   response.status(201).json(order)
 })
 
+api.put('/purchase-orders/:id', inventoryUsers, async (request: AuthenticatedRequest, response) => {
+  const input = parseInput(orderInput, request.body)
+  const updated = await inTransaction(async (client) => {
+    const selected = await client.query(
+      'SELECT id, status FROM purchase_orders WHERE id = $1 AND store_id = $2 FOR UPDATE',
+      [String(request.params.id), request.user!.store_id],
+    )
+    if (!selected.rows[0]) throw new HttpError(404, 'Purchase order not found.', 'not_found')
+    if (selected.rows[0].status !== 'draft') {
+      throw new HttpError(409, 'Only draft orders can be edited.', 'invalid_transition')
+    }
+    const supplier = await client.query(
+      'SELECT id FROM suppliers WHERE id = $1 AND store_id = $2',
+      [input.supplier_id, request.user!.store_id],
+    )
+    if (!supplier.rowCount) throw new HttpError(400, 'Choose a supplier from this store.', 'invalid_supplier')
+    for (const line of input.lines) {
+      const variant = await client.query(
+        'SELECT id FROM product_variants WHERE id = $1 AND store_id = $2',
+        [line.variant_id, request.user!.store_id],
+      )
+      if (!variant.rowCount) {
+        throw new HttpError(400, 'A purchase line refers to a product outside this store.', 'invalid_variant')
+      }
+    }
+    await client.query('UPDATE purchase_orders SET supplier_id = $3 WHERE id = $1 AND store_id = $2',
+      [selected.rows[0].id, request.user!.store_id, input.supplier_id])
+    await client.query('DELETE FROM purchase_order_lines WHERE order_id = $1 AND store_id = $2',
+      [selected.rows[0].id, request.user!.store_id])
+    for (const line of input.lines) {
+      await client.query(
+        `INSERT INTO purchase_order_lines (store_id, order_id, variant_id, quantity, unit_cost_tnd)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [request.user!.store_id, selected.rows[0].id, line.variant_id, line.quantity, line.unit_cost_tnd],
+      )
+    }
+    return selected.rows[0]
+  })
+  response.json(updated)
+})
+
+api.delete('/purchase-orders/:id', inventoryUsers, async (request: AuthenticatedRequest, response) => {
+  const result = await getPool().query(
+    `DELETE FROM purchase_orders
+     WHERE id = $1 AND store_id = $2 AND status = 'draft'
+     RETURNING id`,
+    [String(request.params.id), request.user!.store_id],
+  )
+  if (!result.rowCount) {
+    const order = await getPool().query(
+      'SELECT status FROM purchase_orders WHERE id = $1 AND store_id = $2',
+      [String(request.params.id), request.user!.store_id],
+    )
+    if (!order.rowCount) throw new HttpError(404, 'Purchase order not found.', 'not_found')
+    throw new HttpError(409, 'Only draft orders can be cancelled.', 'invalid_transition')
+  }
+  response.status(204).end()
+})
+
 api.patch('/purchase-orders/:id/status', inventoryUsers, async (request: AuthenticatedRequest, response) => {
   const status = request.body?.status
   if (status !== 'sent' && status !== 'received') throw new HttpError(400, 'Status must be sent or received.', 'validation_error')
@@ -480,24 +563,22 @@ api.patch('/purchase-orders/:id/status', inventoryUsers, async (request: Authent
 
 api.get('/alerts', async (request: AuthenticatedRequest, response) => {
   const result = await getPool().query(
-    `WITH stock AS (
-      SELECT v.product_id, v.id AS variant_id, SUM(CASE WHEN m.type = 'IN' THEN m.quantity
-         WHEN m.type = 'OUT' THEN -m.quantity ELSE m.quantity * m.adjustment_sign END)::int AS quantity
-      FROM product_variants v LEFT JOIN inventory_movements m ON m.variant_id = v.id AND m.store_id = v.store_id
-       WHERE v.store_id = $1 GROUP BY v.id
-     )
-     SELECT p.id, p.sku, p.name_ar, p.name_fr, p.category, p.price_tnd, p.low_stock_threshold,
-            COALESCE(SUM(stock.quantity), 0)::int AS quantity,
-            COALESCE(jsonb_agg(jsonb_build_object(
-              'id', v.id, 'size', v.size, 'color_key', v.color_key,
-              'color_ar', v.color_ar, 'color_fr', v.color_fr, 'color_hex', v.color_hex,
-              'quantity', COALESCE(stock.quantity, 0)
-            ) ORDER BY v.size, v.color_key) FILTER (WHERE v.id IS NOT NULL), '[]'::jsonb) AS variants
-     FROM products p LEFT JOIN product_variants v ON v.product_id = p.id AND v.store_id = p.store_id
-     LEFT JOIN stock ON stock.variant_id = v.id
+    `SELECT p.id, p.sku, p.name_ar, p.name_fr, p.category, p.price_tnd,
+            v.id AS variant_id, v.size, v.color_key, v.color_ar, v.color_fr, v.color_hex,
+            COALESCE(SUM(CASE WHEN m.type = 'IN' THEN m.quantity
+                              WHEN m.type = 'OUT' THEN -m.quantity
+                              ELSE m.quantity * m.adjustment_sign END), 0)::int AS quantity,
+            COALESCE(v.low_stock_threshold, p.low_stock_threshold) AS low_stock_threshold
+     FROM products p
+     JOIN product_variants v ON v.product_id = p.id AND v.store_id = p.store_id
+     LEFT JOIN inventory_movements m ON m.variant_id = v.id AND m.store_id = v.store_id
      WHERE p.store_id = $1 AND p.archived_at IS NULL
-     GROUP BY p.id HAVING COALESCE(SUM(stock.quantity), 0) <= p.low_stock_threshold
-     ORDER BY quantity ASC`,
+     GROUP BY p.id, v.id
+     HAVING COALESCE(SUM(CASE WHEN m.type = 'IN' THEN m.quantity
+                              WHEN m.type = 'OUT' THEN -m.quantity
+                              ELSE m.quantity * m.adjustment_sign END), 0)
+            <= COALESCE(v.low_stock_threshold, p.low_stock_threshold)
+     ORDER BY quantity ASC, p.sku, v.size, v.color_key`,
     [request.user!.store_id],
   )
   response.json(result.rows)

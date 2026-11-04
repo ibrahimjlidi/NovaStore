@@ -10,6 +10,10 @@ export const variantInput = z.object({
   color_ar: z.string().trim().min(1).max(80),
   color_fr: z.string().trim().min(1).max(80),
   color_hex: z.string().regex(/^#[0-9A-Fa-f]{6}$/),
+  low_stock_threshold: z.preprocess(
+    (value) => value === undefined || value === '' || value === null ? null : Number(value),
+    z.union([z.number().int().min(0).max(1_000_000), z.null()]),
+  ).default(null),
 })
 
 export const productInput = z.object({
@@ -61,6 +65,14 @@ export const orderInput = z.object({
     quantity: z.coerce.number().int().positive().max(1_000_000),
     unit_cost_tnd: z.coerce.number().finite().positive().max(999_999_999),
   })).min(1).max(200),
+}).superRefine((order, context) => {
+  const variants = new Set<string>()
+  order.lines.forEach((line, index) => {
+    if (variants.has(line.variant_id)) {
+      context.addIssue({ code: 'custom', path: ['lines', index, 'variant_id'], message: 'A variant may only appear once in a purchase order.' })
+    }
+    variants.add(line.variant_id)
+  })
 })
 
 export const emailInput = z.string().trim().email().max(254).transform((value) => value.toLowerCase())

@@ -34,6 +34,15 @@ test('product validation normalizes identifiers and variant colors', () => {
   assert.equal(parsed.price_tnd, 39.9)
   assert.equal(parsed.low_stock_threshold, 8)
   assert.equal(parsed.variants[0].color_key, 'noir')
+  assert.equal(parsed.variants[0].low_stock_threshold, null)
+  assert.equal(productInput.parse({
+    ...validProduct,
+    variants: [{ ...validProduct.variants[0], low_stock_threshold: '12' }],
+  }).variants[0].low_stock_threshold, 12)
+  assert.equal(productInput.safeParse({
+    ...validProduct,
+    variants: [{ ...validProduct.variants[0], low_stock_threshold: '-1' }],
+  }).success, false)
 })
 
 test('product validation rejects missing variants, invalid categories, and excessive variants', () => {
@@ -83,6 +92,13 @@ test('purchase order validation requires a supplier and positive lines', () => {
     lines: [{ variant_id: variantId, quantity: '3', unit_cost_tnd: '12.5' }],
   }).lines[0], { variant_id: variantId, quantity: 3, unit_cost_tnd: 12.5 })
   assert.equal(orderInput.safeParse({ supplier_id: supplierId, lines: [] }).success, false)
+  assert.equal(orderInput.safeParse({
+    supplier_id: supplierId,
+    lines: [
+      { variant_id: variantId, quantity: 1, unit_cost_tnd: 1 },
+      { variant_id: variantId, quantity: 2, unit_cost_tnd: 2 },
+    ],
+  }).success, false)
 })
 
 test('invitation and role schemas normalize email and reject admin invitations', () => {

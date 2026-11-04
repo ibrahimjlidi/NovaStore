@@ -37,7 +37,12 @@ async function recordSchemaOnlyMigrations(pool: Pool) {
   const migrationsDirectory = fileURLToPath(new URL('../../migrations/', import.meta.url))
   const filenames = (await readdir(migrationsDirectory)).filter((file) => file.endsWith('.sql')).sort()
   if (!filenames.length) throw new Error('No migration files were found for the schema-only E2E database.')
-  const migrationBaseline = available.has('store_users.disabled_at') ? filenames : filenames.slice(0, -1)
+  const migrationBaseline = filenames.filter((filename) => {
+    if (filename.startsWith('001_') || filename.startsWith('002_')) return true
+    if (filename.startsWith('003_')) return available.has('store_users.disabled_at')
+    if (filename.startsWith('004_')) return available.has('product_variants.low_stock_threshold')
+    return false
+  })
   await pool.query(
     'INSERT INTO schema_migrations (filename) SELECT unnest($1::text[]) ON CONFLICT (filename) DO NOTHING',
     [migrationBaseline],

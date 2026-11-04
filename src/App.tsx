@@ -55,7 +55,30 @@ interface Variant {
   color_ar: string
   color_fr: string
   color_hex: string
+  low_stock_threshold: number | null
   quantity: number
+}
+
+interface StockAlert {
+  id: string
+  sku: string
+  name_ar: string
+  name_fr: string
+  category: Category
+  variant_id: string
+  size: Size
+  color_ar: string
+  color_fr: string
+  quantity: number
+  low_stock_threshold: number
+}
+
+interface MovementPage {
+  items: Movement[]
+  page: number
+  page_size: number
+  total: number
+  has_more: boolean
 }
 
 interface Product {
@@ -176,6 +199,7 @@ interface VariantDraft {
   color_ar: string
   color_fr: string
   color_hex: string
+  low_stock_threshold: string
   quantity?: number
 }
 
@@ -264,6 +288,9 @@ const copy = {
     lowProducts: 'منتجات قاربت على النفاد', viewAll: 'عرض الكل', sku: 'رمز المنتج', product: 'المنتج',
     category: 'الفئة', price: 'السعر', quantity: 'الكمية', status: 'الحالة', actions: 'إجراءات',
     size: 'المقاس', color: 'اللون', threshold: 'حد التنبيه', variant: 'القياس واللون', filter: 'تصفية',
+    variantThreshold: 'حد تنبيه المقاس/اللون (فارغ لاستخدام الحد العام)', loadMore: 'تحميل المزيد',
+    movementCount: 'حركة', last90: 'آخر 90 يوماً', editOrder: 'تعديل المسودة', cancelOrder: 'إلغاء المسودة',
+    confirmCancelOrder: 'إلغاء هذه المسودة؟ لا يمكن التراجع عن ذلك.', orderCancelled: 'تم إلغاء المسودة.',
     allCategories: 'كل الفئات', lowOnly: 'المخزون المنخفض فقط', inStock: 'متوفر', low: 'منخفض', outOfStock: 'نفد المخزون',
     edit: 'تعديل', archive: 'أرشفة', save: 'حفظ', cancel: 'إلغاء', close: 'إغلاق', addVariant: 'إضافة مقاس/لون',
     arabicName: 'الاسم بالعربية', frenchName: 'الاسم بالفرنسية', selectCategory: 'اختر الفئة', noProducts: 'لا توجد منتجات بعد.',
@@ -324,6 +351,9 @@ const copy = {
     lowProducts: 'Produits à réapprovisionner', viewAll: 'Tout voir', sku: 'SKU', product: 'Produit',
     category: 'Catégorie', price: 'Prix', quantity: 'Quantité', status: 'Statut', actions: 'Actions',
     size: 'Taille', color: 'Couleur', threshold: 'Seuil d’alerte', variant: 'Taille et couleur', filter: 'Filtrer',
+    variantThreshold: 'Seuil variante (vide = seuil général)', loadMore: 'Charger plus',
+    movementCount: 'mouvements', last90: '90 derniers jours', editOrder: 'Modifier le brouillon', cancelOrder: 'Annuler le brouillon',
+    confirmCancelOrder: 'Annuler ce brouillon ? Cette action est irréversible.', orderCancelled: 'Brouillon annulé.',
     allCategories: 'Toutes les catégories', lowOnly: 'Stock faible uniquement', inStock: 'En stock', low: 'Faible', outOfStock: 'Épuisé',
     edit: 'Modifier', archive: 'Archiver', save: 'Enregistrer', cancel: 'Annuler', close: 'Fermer', addVariant: 'Ajouter une variante',
     arabicName: 'Nom en arabe', frenchName: 'Nom en français', selectCategory: 'Choisir une catégorie', noProducts: 'Aucun produit pour le moment.',
@@ -499,12 +529,16 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
   const [movements, setMovements] = useState<Movement[]>([])
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [orders, setOrders] = useState<PurchaseOrder[]>([])
-  const [alerts, setAlerts] = useState<Product[]>([])
+  const [alerts, setAlerts] = useState<StockAlert[]>([])
   const [team, setTeam] = useState<TeamData | null>(null)
   const [report, setReport] = useState<InventoryReport | null>(null)
   const [page, setPage] = useState<Page>('dashboard')
   const [mobileNav, setMobileNav] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [movementPage, setMovementPage] = useState(1)
+  const [movementHasMore, setMovementHasMore] = useState(false)
+  const [movementTotal, setMovementTotal] = useState(0)
+  const [loadingMoreMovements, setLoadingMoreMovements] = useState(false)
   const [today] = useState(() => new Date())
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -516,6 +550,7 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
   const [lowOnly, setLowOnly] = useState(false)
   const [period, setPeriod] = useState('30')
   const [supplierTab, setSupplierTab] = useState<'suppliers' | 'orders'>('suppliers')
+  const [orderEditingId, setOrderEditingId] = useState<string | null>(null)
   const [productDialog, setProductDialog] = useState(false)
   const [movementDialog, setMovementDialog] = useState(false)
   const [supplierDialog, setSupplierDialog] = useState(false)
@@ -751,7 +786,7 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
       nextDashboard,
       nextProducts,
       nextAlerts,
-      nextMovements,
+      nextMovementPage,
       nextSupplierData,
       nextOrders,
       nextReport,
@@ -759,8 +794,10 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
     ] = await Promise.all([
       api<DashboardData>('/dashboard'),
       api<Product[]>('/products'),
-      api<Product[]>('/alerts'),
-      allowed.has('movements') ? api<Movement[]>('/movements?days=90') : Promise.resolve([]),
+      api<StockAlert[]>('/alerts'),
+      allowed.has('movements') ?       api<MovementPage>('/movements?days=90&page=1') : Promise.resolve({
+        items: [], page: 1, page_size: 50, total: 0, has_more: false,
+      }),
       allowed.has('suppliers')
         ? api<Supplier[]>('/suppliers')
         : Promise.resolve([]),
@@ -779,7 +816,10 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
       dashboard: nextDashboard,
       products: nextProducts,
       alerts: nextAlerts,
-      movements: nextMovements,
+      movements: nextMovementPage.items,
+      movementPage: nextMovementPage.page,
+      movementHasMore: nextMovementPage.has_more,
+      movementTotal: nextMovementPage.total,
       suppliers: nextSupplierData,
       orders: nextOrders,
       report: nextReport,
@@ -793,6 +833,9 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
     setProducts(snapshot.products)
     setAlerts(snapshot.alerts)
     setMovements(snapshot.movements)
+    setMovementPage(snapshot.movementPage)
+    setMovementHasMore(snapshot.movementHasMore)
+    setMovementTotal(snapshot.movementTotal)
     setSuppliers(snapshot.suppliers)
     setOrders(snapshot.orders)
     setReport(snapshot.report)
@@ -803,6 +846,23 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
   const refresh = useCallback(async () => {
     applySnapshot(await fetchSnapshot())
   }, [applySnapshot, fetchSnapshot])
+
+  async function loadMoreMovements() {
+    if (loadingMoreMovements || !movementHasMore) return
+    setLoadingMoreMovements(true)
+    setError('')
+    try {
+      const next = await api<MovementPage>(`/movements?days=90&page=${movementPage + 1}`)
+      setMovements((current) => [...current, ...next.items])
+      setMovementPage(next.page)
+      setMovementHasMore(next.has_more)
+      setMovementTotal(next.total)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : t('apiError'))
+    } finally {
+      setLoadingMoreMovements(false)
+    }
+  }
 
   useEffect(() => {
     if (!isLoaded || !isSignedIn) return
@@ -831,7 +891,9 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
         && (categoryFilter === 'all' || product.category === categoryFilter)
         && (sizeFilter === 'all' || product.variants.some((variant) => variant.size === sizeFilter))
         && (colorFilter === 'all' || product.variants.some((variant) => variant.color_key === colorFilter))
-        && (!lowOnly || product.quantity <= product.low_stock_threshold)
+        && (!lowOnly || product.variants.some((variant) =>
+          variant.quantity <= (variant.low_stock_threshold ?? product.low_stock_threshold),
+        ))
     })
   }, [products, query, language, categoryFilter, sizeFilter, colorFilter, lowOnly])
 
@@ -865,7 +927,7 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
       category: 'tshirt',
       price_tnd: '',
       low_stock_threshold: '10',
-      variants: [{ size: 'M', color_key: 'noir', color_ar: 'أسود', color_fr: 'Noir', color_hex: '#292D32' }],
+      variants: [{ size: 'M', color_key: 'noir', color_ar: 'أسود', color_fr: 'Noir', color_hex: '#292D32', low_stock_threshold: '' }],
     })
     setProductDialog(true)
   }
@@ -879,7 +941,10 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
       category: product.category,
       price_tnd: String(product.price_tnd),
       low_stock_threshold: String(product.low_stock_threshold),
-      variants: product.variants.map((variant) => ({ ...variant })),
+      variants: product.variants.map((variant) => ({
+        ...variant,
+        low_stock_threshold: variant.low_stock_threshold === null ? '' : String(variant.low_stock_threshold),
+      })),
     })
     setProductDialog(true)
   }
@@ -892,8 +957,9 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
       category: draft.category,
       price_tnd: Number(draft.price_tnd),
       low_stock_threshold: Number(draft.low_stock_threshold),
-      variants: draft.variants.map(({ size, color_key, color_ar, color_fr, color_hex }) => ({
+      variants: draft.variants.map(({ size, color_key, color_ar, color_fr, color_hex, low_stock_threshold }) => ({
         size, color_key, color_ar, color_fr, color_hex,
+        low_stock_threshold: low_stock_threshold === '' ? null : Number(low_stock_threshold),
       })),
     }
   }
@@ -951,27 +1017,41 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
     }
   }
 
-  function openNewOrder(product?: Product) {
+  function openNewOrder(product?: Product, variant?: Variant) {
     if (!suppliers.length) {
       setPage('suppliers')
       setSupplierTab('suppliers')
       showNotice(t('noSuppliers'))
       return
     }
+    setOrderEditingId(null)
     setOrderSupplier(suppliers[0].id)
-    const initialVariant = product?.variants[0]
+    const initialVariant = variant ?? product?.variants[0]
     setOrderLines([{
       variant_id: initialVariant?.id ?? products[0]?.variants[0]?.id ?? '',
-      quantity: product ? String(Math.max(1, product.low_stock_threshold * 2 - product.quantity)) : '1',
+      quantity: product && initialVariant
+        ? String(Math.max(1, (initialVariant.low_stock_threshold ?? product.low_stock_threshold) * 2 - initialVariant.quantity))
+        : '1',
       unit_cost_tnd: product ? String(Number(product.price_tnd) * 0.65) : products[0] ? String(Number(products[0].price_tnd) * 0.65) : '1',
     }])
     setOrderDialog(true)
   }
 
+  function openEditOrder(order: PurchaseOrder) {
+    setOrderEditingId(order.id)
+    setOrderSupplier(order.supplier_id)
+    setOrderLines(order.lines.map((line) => ({
+      variant_id: line.variant_id,
+      quantity: String(line.quantity),
+      unit_cost_tnd: String(line.unit_cost_tnd),
+    })))
+    setOrderDialog(true)
+  }
+
   async function saveOrder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const saved = await runAction(() => api('/purchase-orders', {
-      method: 'POST',
+    const saved = await runAction(() => api(orderEditingId ? `/purchase-orders/${orderEditingId}` : '/purchase-orders', {
+      method: orderEditingId ? 'PUT' : 'POST',
       body: JSON.stringify({
         supplier_id: orderSupplier,
         lines: orderLines.map((line) => ({
@@ -984,7 +1064,13 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
     if (saved) {
       setSupplierTab('orders')
       setOrderDialog(false)
+      setOrderEditingId(null)
     }
+  }
+
+  async function cancelPurchaseOrder(order: PurchaseOrder) {
+    if (!window.confirm(t('confirmCancelOrder'))) return
+    await runAction(() => api(`/purchase-orders/${order.id}`, { method: 'DELETE' }), t('orderCancelled'))
   }
 
   async function changeOrderStatus(order: PurchaseOrder, status: 'sent' | 'received') {
@@ -1237,8 +1323,11 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
     value: Number(item.value),
     color: ['#52715d', '#a97d68', '#8b9b81', '#b69b6b', '#748b9a', '#9c8293'][index % 6],
   }))
-  const statusFor = (product: Product) => product.quantity === 0 ? 'outOfStock' : product.quantity <= product.low_stock_threshold ? 'low' : 'inStock'
-  const statusLabel = (product: Product) => t(statusFor(product))
+  const statusFor = (product: Product) => product.quantity === 0
+    ? 'outOfStock'
+    : product.variants.some((variant) => variant.quantity <= (variant.low_stock_threshold ?? product.low_stock_threshold))
+      ? 'low'
+      : 'inStock'
   const variantOptions = products.flatMap((product) => product.variants.map((variant) => ({
     ...variant,
     product_id: product.id,
@@ -1347,10 +1436,11 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
 
           {page === 'movements' && (
             <section className="panel table-panel">
-              <PanelHeading title={t('movements')} subtitle={`${movements.length} · ${t('last30')}`} />
+              <PanelHeading title={t('movements')} subtitle={`${movements.length} / ${movementTotal} ${t('movementCount')} · ${t('last90')}`} />
               {movements.length ? <div className="table-scroll"><table className="data-table"><thead><tr><th>{t('date')}</th><th>{t('product')}</th><th>{t('variant')}</th><th>{t('type')}</th><th className="number-cell">{t('quantity')}</th><th>{t('user')}</th><th>{t('note')}</th></tr></thead><tbody>
                 {movements.map((movement) => <tr key={movement.id}><td>{dateLabel(movement.created_at, language, true)}</td><td><div className="product-cell"><span className="product-glyph"><Shirt size={17} /></span><span><strong>{language === 'ar' ? movement.name_ar : movement.name_fr}</strong><small>{movement.sku}</small></span></div></td><td>{movement.size} · {language === 'ar' ? movement.color_ar : movement.color_fr}</td><td><MovementBadge type={movement.type} sign={movement.adjustment_sign} language={language} /></td><td className="number-cell"><strong>{movement.type === 'OUT' || (movement.type === 'ADJUSTMENT' && movement.adjustment_sign === -1) ? '−' : '+'}{movement.quantity}</strong></td><td>{movement.created_by_email}</td><td>{movement.note || '—'}</td></tr>)}
               </tbody></table></div> : <EmptyState>{t('noMovements')}</EmptyState>}
+              {movementHasMore && <div className="table-footnote"><button className="button button-outline" disabled={loadingMoreMovements} onClick={() => void loadMoreMovements()}>{loadingMoreMovements ? t('loading') : t('loadMore')}</button></div>}
             </section>
           )}
 
@@ -1361,7 +1451,7 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
                 {suppliers.length ? <div className="table-scroll"><table className="data-table"><thead><tr><th>{t('supplier')}</th><th>{t('phone')}</th><th>{t('city')}</th><th>{t('email')}</th><th>{t('orders')}</th></tr></thead><tbody>{suppliers.map((supplier) => <tr key={supplier.id}><td><div className="product-cell"><span className="supplier-avatar">{supplier.name.slice(0, 1)}</span><strong>{supplier.name}</strong></div></td><td>{supplier.phone || '—'}</td><td>{supplier.city || '—'}</td><td>{supplier.email || '—'}</td><td>{supplier.order_count}</td></tr>)}</tbody></table></div> : <EmptyState>{t('noSuppliers')}</EmptyState>}
               </section> : <section className="panel table-panel">
                 {orders.length ? <div className="table-scroll"><table className="data-table"><thead><tr><th>{t('orderNumber')}</th><th>{t('supplier')}</th><th>{t('date')}</th><th>{t('lines')}</th><th className="number-cell">{t('total')}</th><th>{t('status')}</th><th>{t('actions')}</th></tr></thead><tbody>
-                  {orders.map((order) => <tr key={order.id}><td><strong>PO-{String(order.order_number).padStart(4, '0')}</strong></td><td>{order.supplier_name}</td><td>{dateLabel(order.created_at, language)}</td><td><div className="order-line-list">{order.lines.map((line) => <span key={line.id}>{language === 'ar' ? line.name_ar : line.name_fr} · {line.size} × {line.quantity}</span>)}</div></td><td className="number-cell">{formattedMoney(order.total_tnd)}</td><td><OrderBadge status={order.status} language={language} /></td><td>{profile.role !== 'viewer' && order.status !== 'received' && <button className="button button-quiet button-small" disabled={saving} onClick={() => changeOrderStatus(order, order.status === 'draft' ? 'sent' : 'received')}>{order.status === 'draft' ? t('send') : t('receive')}</button>}</td></tr>)}
+                  {orders.map((order) => <tr key={order.id}><td><strong>PO-{String(order.order_number).padStart(4, '0')}</strong></td><td>{order.supplier_name}</td><td>{dateLabel(order.created_at, language)}</td><td><div className="order-line-list">{order.lines.map((line) => <span key={line.id}>{language === 'ar' ? line.name_ar : line.name_fr} · {line.size} × {line.quantity}</span>)}</div></td><td className="number-cell">{formattedMoney(order.total_tnd)}</td><td><OrderBadge status={order.status} language={language} /></td><td>{profile.role !== 'viewer' && order.status === 'draft' && <div className="table-actions"><button className="button button-quiet button-small" disabled={saving} onClick={() => openEditOrder(order)}>{t('editOrder')}</button><button className="button button-quiet button-small danger-action" disabled={saving} onClick={() => void cancelPurchaseOrder(order)}>{t('cancelOrder')}</button><button className="button button-quiet button-small" disabled={saving} onClick={() => changeOrderStatus(order, 'sent')}>{t('send')}</button></div>}{profile.role !== 'viewer' && order.status === 'sent' && <button className="button button-quiet button-small" disabled={saving} onClick={() => changeOrderStatus(order, 'received')}>{t('receive')}</button>}</td></tr>)}
                 </tbody></table></div> : <EmptyState>{t('noOrders')}</EmptyState>}
               </section>}
             </div>
@@ -1369,8 +1459,12 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
 
           {page === 'alerts' && (
             <section className="panel table-panel">
-              <PanelHeading title={t('alerts')} subtitle={`${alerts.length} ${t('products').toLocaleLowerCase(language)}`} />
-              {alerts.length ? <div className="table-scroll"><table className="data-table"><thead><tr><th>{t('product')}</th><th>{t('sku')}</th><th>{t('category')}</th><th className="number-cell">{t('quantity')}</th><th className="number-cell">{t('threshold')}</th><th>{t('status')}</th><th>{t('actions')}</th></tr></thead><tbody>{alerts.map((product) => <tr key={product.id}><td><div className="product-cell"><span className="product-glyph"><Shirt size={17} /></span><strong>{productName(product, language)}</strong></div></td><td><span className="sku-code">{product.sku}</span></td><td>{categoryName(product.category, language)}</td><td className="number-cell"><strong>{product.quantity}</strong></td><td className="number-cell">{product.low_stock_threshold}</td><td><StatusBadge status={statusFor(product)} label={statusLabel(product)} /></td><td>{profile.role !== 'viewer' && <button className="button button-quiet button-small" onClick={() => openNewOrder(product)}>{t('createOrder')}</button>}</td></tr>)}</tbody></table></div> : <EmptyState>{t('noAlerts')}</EmptyState>}
+              <PanelHeading title={t('alerts')} subtitle={`${alerts.length} ${t('variant').toLocaleLowerCase(language)}`} />
+              {alerts.length ? <div className="table-scroll"><table className="data-table"><thead><tr><th>{t('product')}</th><th>{t('sku')}</th><th>{t('variant')}</th><th className="number-cell">{t('quantity')}</th><th className="number-cell">{t('threshold')}</th><th>{t('status')}</th><th>{t('actions')}</th></tr></thead><tbody>{alerts.map((alert) => <tr key={alert.variant_id}><td><div className="product-cell"><span className="product-glyph"><Shirt size={17} /></span><strong>{language === 'ar' ? alert.name_ar : alert.name_fr}</strong></div></td><td><span className="sku-code">{alert.sku}</span></td><td>{alert.size} · {language === 'ar' ? alert.color_ar : alert.color_fr}</td><td className="number-cell"><strong>{alert.quantity}</strong></td><td className="number-cell">{alert.low_stock_threshold}</td><td><StatusBadge status={alert.quantity === 0 ? 'out' : 'low'} label={alert.quantity === 0 ? t('outOfStock') : t('low')} /></td><td>{profile.role !== 'viewer' && <button className="button button-quiet button-small" onClick={() => {
+                const product = products.find((item) => item.id === alert.id)
+                const variant = product?.variants.find((item) => item.id === alert.variant_id)
+                if (product && variant) openNewOrder(product, variant)
+              }}>{t('createOrder')}</button>}</td></tr>)}</tbody></table></div> : <EmptyState>{t('noAlerts')}</EmptyState>}
             </section>
           )}
 
@@ -1438,8 +1532,8 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
       {productDialog && productDraft && <Modal title={productDraft.id ? t('edit') : t('addProduct')} onClose={() => setProductDialog(false)} wide>
         <form className="form-stack" onSubmit={saveProduct}>
           <div className="form-grid"><label>{t('sku')}<input required maxLength={64} value={productDraft.sku} onChange={(event) => setProductDraft({ ...productDraft, sku: event.target.value })} /></label><label>{t('selectCategory')}<select value={productDraft.category} onChange={(event) => setProductDraft({ ...productDraft, category: event.target.value as Category })}>{categories.map((category) => <option key={category} value={category}>{categoryName(category, language)}</option>)}</select></label><label>{t('arabicName')}<input required maxLength={180} value={productDraft.name_ar} onChange={(event) => setProductDraft({ ...productDraft, name_ar: event.target.value })} /></label><label>{t('frenchName')}<input required maxLength={180} value={productDraft.name_fr} onChange={(event) => setProductDraft({ ...productDraft, name_fr: event.target.value })} /></label><label>{t('price')} · TND<input type="number" min="0.001" step="0.001" required value={productDraft.price_tnd} onChange={(event) => setProductDraft({ ...productDraft, price_tnd: event.target.value })} /></label><label>{t('threshold')}<input type="number" min="0" step="1" required value={productDraft.low_stock_threshold} onChange={(event) => setProductDraft({ ...productDraft, low_stock_threshold: event.target.value })} /></label></div>
-          <div className="variant-editor-heading"><strong>{t('productVariants')}</strong><button className="button button-quiet button-small" type="button" onClick={() => setProductDraft({ ...productDraft, variants: [...productDraft.variants, { size: 'M', color_key: '', color_ar: '', color_fr: '', color_hex: '#789681' }] })}><Plus size={15} />{t('addVariant')}</button></div>
-          <div className="variant-editor">{productDraft.variants.map((variant, index) => <div className="variant-form-row" key={`${variant.id ?? 'new'}-${index}`}><select aria-label={t('size')} value={variant.size} onChange={(event) => setProductDraft({ ...productDraft, variants: productDraft.variants.map((item, row) => row === index ? { ...item, size: event.target.value as Size } : item) })}>{sizes.map((size) => <option key={size} value={size}>{size === 'ONE_SIZE' ? (language === 'ar' ? 'مقاس واحد' : 'Taille unique') : size}</option>)}</select><input required aria-label="Color key" placeholder="color-key" value={variant.color_key} onChange={(event) => setProductDraft({ ...productDraft, variants: productDraft.variants.map((item, row) => row === index ? { ...item, color_key: event.target.value } : item) })} /><input required aria-label={language === 'ar' ? 'اسم اللون بالعربية' : 'Nom couleur arabe'} placeholder={language === 'ar' ? 'أسود' : 'Noir (arabe)'} value={variant.color_ar} onChange={(event) => setProductDraft({ ...productDraft, variants: productDraft.variants.map((item, row) => row === index ? { ...item, color_ar: event.target.value } : item) })} /><input required aria-label={language === 'ar' ? 'اسم اللون بالفرنسية' : 'Nom couleur français'} placeholder="Noir" value={variant.color_fr} onChange={(event) => setProductDraft({ ...productDraft, variants: productDraft.variants.map((item, row) => row === index ? { ...item, color_fr: event.target.value } : item) })} /><input type="color" aria-label={t('color')} value={variant.color_hex} onChange={(event) => setProductDraft({ ...productDraft, variants: productDraft.variants.map((item, row) => row === index ? { ...item, color_hex: event.target.value } : item) })} />{variant.id && <span className="variant-quantity">{variant.quantity} {t('units')}</span>}<button type="button" className="icon-button danger-action" aria-label={t('archive')} disabled={productDraft.variants.length === 1} onClick={() => setProductDraft({ ...productDraft, variants: productDraft.variants.filter((_, row) => row !== index) })}><X size={15} /></button></div>)}</div>
+          <div className="variant-editor-heading"><strong>{t('productVariants')}</strong><button className="button button-quiet button-small" type="button" onClick={() => setProductDraft({ ...productDraft, variants: [...productDraft.variants, { size: 'M', color_key: '', color_ar: '', color_fr: '', color_hex: '#789681', low_stock_threshold: '' }] })}><Plus size={15} />{t('addVariant')}</button></div>
+          <div className="variant-editor">{productDraft.variants.map((variant, index) => <div className="variant-form-row" key={`${variant.id ?? 'new'}-${index}`}><select aria-label={t('size')} value={variant.size} onChange={(event) => setProductDraft({ ...productDraft, variants: productDraft.variants.map((item, row) => row === index ? { ...item, size: event.target.value as Size } : item) })}>{sizes.map((size) => <option key={size} value={size}>{size === 'ONE_SIZE' ? (language === 'ar' ? 'مقاس واحد' : 'Taille unique') : size}</option>)}</select><input required aria-label="Color key" placeholder="color-key" value={variant.color_key} onChange={(event) => setProductDraft({ ...productDraft, variants: productDraft.variants.map((item, row) => row === index ? { ...item, color_key: event.target.value } : item) })} /><input required aria-label={language === 'ar' ? 'اسم اللون بالعربية' : 'Nom couleur arabe'} placeholder={language === 'ar' ? 'أسود' : 'Noir (arabe)'} value={variant.color_ar} onChange={(event) => setProductDraft({ ...productDraft, variants: productDraft.variants.map((item, row) => row === index ? { ...item, color_ar: event.target.value } : item) })} /><input required aria-label={language === 'ar' ? 'اسم اللون بالفرنسية' : 'Nom couleur français'} placeholder="Noir" value={variant.color_fr} onChange={(event) => setProductDraft({ ...productDraft, variants: productDraft.variants.map((item, row) => row === index ? { ...item, color_fr: event.target.value } : item) })} /><input type="color" aria-label={t('color')} value={variant.color_hex} onChange={(event) => setProductDraft({ ...productDraft, variants: productDraft.variants.map((item, row) => row === index ? { ...item, color_hex: event.target.value } : item) })} /><input type="number" min="0" step="1" aria-label={`${t('variantThreshold')} ${variant.size} ${variant.color_key}`} placeholder={productDraft.low_stock_threshold} value={variant.low_stock_threshold} onChange={(event) => setProductDraft({ ...productDraft, variants: productDraft.variants.map((item, row) => row === index ? { ...item, low_stock_threshold: event.target.value } : item) })} />{variant.id && <span className="variant-quantity">{variant.quantity} {t('units')}</span>}<button type="button" className="icon-button danger-action" aria-label={t('archive')} disabled={productDraft.variants.length === 1} onClick={() => setProductDraft({ ...productDraft, variants: productDraft.variants.filter((_, row) => row !== index) })}><X size={15} /></button></div>)}</div>
           <div className="modal-actions"><button className="button button-outline" type="button" onClick={() => setProductDialog(false)}>{t('cancel')}</button><button className="button button-primary" disabled={saving}>{t('save')}</button></div>
         </form>
       </Modal>}
@@ -1459,7 +1553,7 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
         <form className="form-stack" onSubmit={saveSupplier}><label>{t('supplier')}<input required maxLength={160} value={supplierDraft.name} onChange={(event) => setSupplierDraft({ ...supplierDraft, name: event.target.value })} /></label><label>{t('phone')}<input maxLength={40} value={supplierDraft.phone} onChange={(event) => setSupplierDraft({ ...supplierDraft, phone: event.target.value })} /></label><label>{t('city')}<input maxLength={100} value={supplierDraft.city} onChange={(event) => setSupplierDraft({ ...supplierDraft, city: event.target.value })} /></label><label>{t('email')}<input type="email" value={supplierDraft.email} onChange={(event) => setSupplierDraft({ ...supplierDraft, email: event.target.value })} /></label><label>{t('notes')}<textarea rows={2} value={supplierDraft.notes} onChange={(event) => setSupplierDraft({ ...supplierDraft, notes: event.target.value })} /></label><div className="modal-actions"><button className="button button-outline" type="button" onClick={() => setSupplierDialog(false)}>{t('cancel')}</button><button className="button button-primary" disabled={saving}>{t('save')}</button></div></form>
       </Modal>}
 
-      {orderDialog && <Modal title={t('createPurchaseOrder')} onClose={() => setOrderDialog(false)} wide>
+      {orderDialog && <Modal title={orderEditingId ? t('editOrder') : t('createPurchaseOrder')} onClose={() => { setOrderDialog(false); setOrderEditingId(null) }} wide>
         <form className="form-stack" onSubmit={saveOrder}>
           <label>{t('supplier')}<select required value={orderSupplier} onChange={(event) => setOrderSupplier(event.target.value)}><option value="">{t('selectSupplier')}</option>{suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}</select></label>
           <div className="variant-editor-heading"><strong>{t('lines')}</strong><button type="button" className="button button-quiet button-small" onClick={() => setOrderLines([...orderLines, { variant_id: variantOptions[0]?.id ?? '', quantity: '1', unit_cost_tnd: String(variantOptions[0]?.price_tnd ?? '') }])}><Plus size={15} />{t('addLine')}</button></div>
@@ -1467,7 +1561,7 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
             const selected = variantOptions.find((variant) => variant.id === event.target.value)
             setOrderLines(orderLines.map((item, row) => row === index ? { ...item, variant_id: event.target.value, unit_cost_tnd: selected ? String((selected.price_tnd * 0.65).toFixed(3)) : item.unit_cost_tnd } : item))
           }}><option value="">{t('selectProduct')}</option>{products.map((product) => <optgroup key={product.id} label={`${product.sku} · ${productName(product, language)}`}>{product.variants.map((variant) => <option key={variant.id} value={variant.id}>{variantLabel(variant, language)}</option>)}</optgroup>)}</select><input aria-label={t('quantity')} type="number" min="1" step="1" required placeholder={t('quantity')} value={line.quantity} onChange={(event) => setOrderLines(orderLines.map((item, row) => row === index ? { ...item, quantity: event.target.value } : item))} /><input aria-label={t('unitCost')} type="number" min="0.001" step="0.001" required placeholder={t('unitCost')} value={line.unit_cost_tnd} onChange={(event) => setOrderLines(orderLines.map((item, row) => row === index ? { ...item, unit_cost_tnd: event.target.value } : item))} /><button type="button" className="icon-button danger-action" disabled={orderLines.length === 1} onClick={() => setOrderLines(orderLines.filter((_, row) => row !== index))} aria-label={t('cancel')}><X size={15} /></button></div>)}</div>
-          <div className="modal-actions"><button className="button button-outline" type="button" onClick={() => setOrderDialog(false)}>{t('cancel')}</button><button className="button button-primary" disabled={saving}>{t('create')}</button></div>
+          <div className="modal-actions"><button className="button button-outline" type="button" onClick={() => { setOrderDialog(false); setOrderEditingId(null) }}>{t('cancel')}</button><button className="button button-primary" disabled={saving}>{orderEditingId ? t('save') : t('create')}</button></div>
         </form>
       </Modal>}
 

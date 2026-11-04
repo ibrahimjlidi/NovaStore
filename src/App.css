@@ -1241,7 +1241,7 @@
 
 .variant-form-row {
   display: grid;
-  grid-template-columns: .65fr .8fr 1fr 1fr 44px auto 34px;
+  grid-template-columns: .55fr .7fr .9fr .9fr 38px .75fr auto 34px;
   align-items: center;
   gap: 6px;
 }
@@ -1856,7 +1856,7 @@
   }
 
   .variant-form-row {
-    grid-template-columns: 60px minmax(70px, .8fr) minmax(85px, 1fr) minmax(85px, 1fr) 38px 30px;
+    grid-template-columns: 42px minmax(55px, .7fr) minmax(70px, 1fr) minmax(70px, 1fr) 30px minmax(55px, .7fr) 30px;
   }
 
   .variant-form-row .variant-quantity {
