@@ -10,6 +10,7 @@ import {
   ChevronDown,
   CircleHelp,
   Download,
+  Eye,
   FileSpreadsheet,
   FileText,
   LayoutDashboard,
@@ -322,6 +323,7 @@ const copy = {
     confirmImportPrompt: 'سيتم إنشاء المنتجات وحركات الأرصدة الافتتاحية. هل تريد المتابعة؟',
     orderNumber: 'رقم الطلب', receivedAt: 'تاريخ الاستلام', noReport: 'لا توجد بيانات مخزون للتقرير.',
     store: 'المتجر', logout: 'الحساب', view: 'عرض', productVariants: 'المتغيرات', totalUnits: 'إجمالي الوحدات',
+    viewProduct: 'عرض المنتج', productDetails: 'تفاصيل المنتج', stockByVariant: 'المخزون حسب المقاس واللون',
     generated: 'بيانات مباشرة من قاعدة البيانات', inviteEmail: 'بريد المستخدم', allSizes: 'كل المقاسات', allColors: 'كل الألوان',
     selectSupplier: 'اختر المورد', choose: 'اختر', fileIssues: 'أصلح أخطاء الملف قبل المتابعة.', stockHistoryNote: 'الكمية محسوبة من سجل الحركات.',
     chartEmpty: 'تظهر الرسوم بعد تسجيل حركات المخزون.', waitingAuth: 'جارٍ التحقق من الحساب...',
@@ -385,6 +387,7 @@ const copy = {
     confirmImportPrompt: 'Les produits et mouvements de stock initial seront créés. Continuer ?',
     orderNumber: 'Commande', receivedAt: 'Date de réception', noReport: 'Aucune donnée d’inventaire.',
     store: 'Magasin', logout: 'Compte', view: 'Voir', productVariants: 'Variantes', totalUnits: 'Unités en stock',
+    viewProduct: 'Voir le produit', productDetails: 'Détails du produit', stockByVariant: 'Stock par taille et couleur',
     generated: 'Données en direct depuis la base', inviteEmail: 'E-mail du membre', allSizes: 'Toutes les tailles', allColors: 'Toutes les couleurs',
     selectSupplier: 'Choisir un fournisseur', choose: 'Choisir', fileIssues: 'Corrigez les erreurs du fichier avant de continuer.', stockHistoryNote: 'Quantité calculée depuis les mouvements.',
     chartEmpty: 'Les graphiques apparaissent après les premiers mouvements.', waitingAuth: 'Vérification du compte…',
@@ -552,6 +555,7 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
   const [supplierTab, setSupplierTab] = useState<'suppliers' | 'orders'>('suppliers')
   const [orderEditingId, setOrderEditingId] = useState<string | null>(null)
   const [productDialog, setProductDialog] = useState(false)
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [movementDialog, setMovementDialog] = useState(false)
   const [supplierDialog, setSupplierDialog] = useState(false)
   const [orderDialog, setOrderDialog] = useState(false)
@@ -933,6 +937,7 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
   }
 
   function beginEditProduct(product: Product) {
+    setSelectedProduct(null)
     setProductDraft({
       id: product.id,
       sku: product.sku,
@@ -1415,7 +1420,7 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
               </section>
               <section className="panel table-panel">
                 <PanelHeading title={t('lowProducts')} subtitle={`${dashboard.low_products.length} ${t('products').toLocaleLowerCase(language)}`} action={<button className="button button-quiet" onClick={() => goTo('alerts')}>{t('viewAll')}<ArrowUpRight size={15} /></button>} />
-                <ProductTable products={dashboard.low_products.slice(0, 5)} language={language} t={t} statusFor={statusFor} formattedMoney={formattedMoney} empty={t('noAlerts')} />
+                <ProductTable products={dashboard.low_products.slice(0, 5)} language={language} t={t} statusFor={statusFor} formattedMoney={formattedMoney} empty={t('noAlerts')} onView={setSelectedProduct} />
               </section>
             </div>
           )}
@@ -1429,7 +1434,7 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
                 <label className="filter-select"><span>{t('color')}</span><select value={colorFilter} onChange={(event) => setColorFilter(event.target.value)}><option value="all">{t('allColors')}</option>{colorOptions.map((color) => <option key={color.key} value={color.key}>{language === 'ar' ? color.ar : color.fr}</option>)}</select></label>
                 <label className="low-filter"><input type="checkbox" checked={lowOnly} onChange={(event) => setLowOnly(event.target.checked)} />{t('lowOnly')}</label>
               </div>
-              <ProductTable products={localizedProducts} language={language} t={t} statusFor={statusFor} formattedMoney={formattedMoney} empty={t('noProducts')} actions={profile.role !== 'viewer' ? (product) => <div className="table-actions"><button className="icon-button" aria-label={t('edit')} onClick={() => beginEditProduct(product)}><FileText size={16} /></button>{profile.role === 'admin' && <button className="icon-button danger-action" aria-label={t('archive')} onClick={() => archiveProduct(product)}><X size={16} /></button>}</div> : undefined} />
+              <ProductTable products={localizedProducts} language={language} t={t} statusFor={statusFor} formattedMoney={formattedMoney} empty={t('noProducts')} onView={setSelectedProduct} actions={profile.role !== 'viewer' ? (product) => <div className="table-actions"><button className="icon-button" aria-label={t('edit')} onClick={() => beginEditProduct(product)}><FileText size={16} /></button>{profile.role === 'admin' && <button className="icon-button danger-action" aria-label={t('archive')} onClick={() => archiveProduct(product)}><X size={16} /></button>}</div> : undefined} />
               <div className="table-footnote"><span>{localizedProducts.length} / {products.length} {t('products').toLocaleLowerCase(language)}</span><span>{t('stockHistoryNote')}</span></div>
             </section>
           )}
@@ -1537,6 +1542,48 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
           <div className="modal-actions"><button className="button button-outline" type="button" onClick={() => setProductDialog(false)}>{t('cancel')}</button><button className="button button-primary" disabled={saving}>{t('save')}</button></div>
         </form>
       </Modal>}
+      {selectedProduct && <Modal title={`${t('viewProduct')} · ${productName(selectedProduct, language)}`} onClose={() => setSelectedProduct(null)} wide>
+        <div className="product-detail">
+          <section className="product-detail-summary">
+            <img className="product-detail-image" src={productPhotos[selectedProduct.category]} alt={productName(selectedProduct, language)} />
+            <div className="product-detail-heading">
+              <span className="sku-code">{selectedProduct.sku}</span>
+              <h3>{productName(selectedProduct, language)}</h3>
+              <StatusBadge status={statusFor(selectedProduct)} label={t(statusFor(selectedProduct) as keyof typeof copy.ar)} />
+            </div>
+          </section>
+          <section className="product-detail-facts" aria-label={t('productDetails')}>
+            <div><span>{t('category')}</span><strong>{categoryName(selectedProduct.category, language)}</strong></div>
+            <div><span>{t('price')}</span><strong>{formattedMoney(selectedProduct.price_tnd)}</strong></div>
+            <div><span>{t('totalUnits')}</span><strong>{selectedProduct.quantity} {t('units')}</strong></div>
+            <div><span>{t('threshold')}</span><strong>{selectedProduct.low_stock_threshold} {t('units')}</strong></div>
+          </section>
+          <section className="product-detail-variants">
+            <h3>{t('stockByVariant')}</h3>
+            <div className="table-scroll"><table className="data-table">
+              <thead><tr><th>{t('variant')}</th><th className="number-cell">{t('quantity')}</th><th className="number-cell">{t('threshold')}</th><th>{t('status')}</th></tr></thead>
+              <tbody>{selectedProduct.variants.map((variant) => {
+                const threshold = variant.low_stock_threshold ?? selectedProduct.low_stock_threshold
+                const variantStatus = variant.quantity === 0 ? 'outOfStock' : variant.quantity <= threshold ? 'low' : 'inStock'
+                return <tr key={variant.id}>
+                  <td><span className="product-variant-color"><i style={{ backgroundColor: variant.color_hex }} />{variantLabel(variant, language)}</span></td>
+                  <td className="number-cell"><strong>{variant.quantity}</strong> {t('units')}</td>
+                  <td className="number-cell">{threshold} {t('units')}</td>
+                  <td><StatusBadge status={variantStatus} label={t(variantStatus)} /></td>
+                </tr>
+              })}</tbody>
+            </table></div>
+          </section>
+          <div className="modal-actions product-detail-actions">
+            {profile.role !== 'viewer' && <>
+              <button className="button button-outline" onClick={() => { const product = selectedProduct; setSelectedProduct(null); beginEditProduct(product) }}><FileText size={15} />{t('edit')}</button>
+              <button className="button button-outline" onClick={() => { const product = selectedProduct; setSelectedProduct(null); openMovement(product) }}><ArrowLeftRight size={15} />{t('newMovement')}</button>
+              {profile.allowed_pages.includes('suppliers') && <button className="button button-primary" onClick={() => { const product = selectedProduct; setSelectedProduct(null); openNewOrder(product) }}><Truck size={15} />{t('createOrder')}</button>}
+            </>}
+            <button className="button button-quiet" onClick={() => setSelectedProduct(null)}>{t('close')}</button>
+          </div>
+        </div>
+      </Modal>}
 
       {movementDialog && <Modal title={t('newMovement')} onClose={() => setMovementDialog(false)}>
         <form className="form-stack" onSubmit={saveMovement}>
@@ -1615,7 +1662,7 @@ function MovementBadge({ type, sign, language }: { type: MovementType; sign: -1 
   return <span className={`movement-badge ${incoming ? 'movement-in' : outgoing ? 'movement-out' : ''}`}><Icon size={13} />{label}</span>
 }
 
-function ProductTable({ products, language, t, statusFor, formattedMoney, empty, actions }: {
+function ProductTable({ products, language, t, statusFor, formattedMoney, empty, actions, onView }: {
   products: Product[]
   language: Language
   t: (key: keyof typeof copy.ar) => string
@@ -1623,9 +1670,10 @@ function ProductTable({ products, language, t, statusFor, formattedMoney, empty,
   formattedMoney: (value: number | string) => string
   empty: string
   actions?: (product: Product) => ReactNode
+  onView: (product: Product) => void
 }) {
   return products.length ? <div className="table-scroll"><table className="data-table"><thead><tr><th>{t('product')}</th><th>{t('sku')}</th><th>{t('category')}</th><th className="number-cell">{t('price')}</th><th className="number-cell">{t('quantity')}</th><th>{t('status')}</th>{actions && <th>{t('actions')}</th>}</tr></thead><tbody>{products.map((product) => {
     const status = statusFor(product)
-    return <tr key={product.id}><td><div className="product-cell"><img className="product-image" src={productPhotos[product.category]} alt={productName(product, language)} loading="lazy" decoding="async" /><span><strong>{productName(product, language)}</strong><small>{product.variants.length} · {language === 'ar' ? 'متغيرات' : 'variantes'}</small></span></div></td><td><span className="sku-code">{product.sku}</span></td><td>{categoryName(product.category, language)}</td><td className="number-cell">{formattedMoney(product.price_tnd)}</td><td className="number-cell"><strong>{product.quantity}</strong> <span className="muted-copy">{t('units')}</span></td><td><StatusBadge status={status} label={t(status as keyof typeof copy.ar)} /></td>{actions && <td>{actions(product)}</td>}</tr>
+    return <tr key={product.id}><td><button type="button" className="product-cell product-cell-button" aria-label={`${t('viewProduct')}: ${productName(product, language)}`} onClick={() => onView(product)}><img className="product-image" src={productPhotos[product.category]} alt={productName(product, language)} loading="lazy" decoding="async" /><span><strong>{productName(product, language)}</strong><small>{product.variants.length} · {language === 'ar' ? 'متغيرات' : 'variantes'}</small></span><Eye className="product-view-icon" size={15} /></button></td><td><span className="sku-code">{product.sku}</span></td><td>{categoryName(product.category, language)}</td><td className="number-cell">{formattedMoney(product.price_tnd)}</td><td className="number-cell"><strong>{product.quantity}</strong> <span className="muted-copy">{t('units')}</span></td><td><StatusBadge status={status} label={t(status as keyof typeof copy.ar)} /></td>{actions && <td>{actions(product)}</td>}</tr>
   })}</tbody></table></div> : <EmptyState>{empty}</EmptyState>
 }
