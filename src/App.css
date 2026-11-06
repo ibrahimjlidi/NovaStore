@@ -1638,30 +1638,48 @@
   align-items: center;
   gap: 8vw;
   padding: 8vw;
-  background: radial-gradient(circle at 20% 20%, #dff0f2, transparent 38%), #f3f7f9;
+  background-color: #102b38;
+  background-image:
+    linear-gradient(90deg, rgba(8, 29, 39, .82), rgba(11, 48, 57, .56) 52%, rgba(12, 57, 65, .34)),
+    url('/login-background.svg');
+  background-position: center;
+  background-size: cover;
 }
 
 .auth-copy {
   max-width: 520px;
+  color: #e8f7f4;
 }
 
 .auth-copy .eyebrow {
   margin-top: 30px;
-  color: #167c8a;
+  color: #9de2dc;
   letter-spacing: 1.1px;
 }
 
 .auth-copy h1 {
   margin: 12px 0;
-  color: #1d3038;
+  color: #f2fbf8;
   font-size: clamp(30px, 5vw, 55px);
   line-height: 1.25;
 }
 
 .auth-copy > p:not(.eyebrow) {
   margin-bottom: 25px;
-  color: #667780;
+  color: #c4e3e1;
   font-size: 14px;
+}
+
+.auth-copy .button-outline {
+  color: #e8f7f4;
+  background: rgba(15, 54, 63, .34);
+  border-color: rgba(209, 243, 237, .42);
+}
+
+.auth-copy .button-outline:hover {
+  color: #fff;
+  background: rgba(15, 54, 63, .68);
+  border-color: #9de2dc;
 }
 
 .auth-form {
@@ -2035,6 +2053,7 @@
     grid-template-columns: 1fr;
     gap: 24px;
     padding: 25px 16px;
+    background-position: 58% center;
   }
 
   .auth-copy {

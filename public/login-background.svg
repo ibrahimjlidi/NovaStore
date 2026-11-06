@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000" fill="none">
+  <defs>
+    <linearGradient id="background" x1="120" y1="70" x2="1470" y2="1000" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#102B38"/>
+      <stop offset=".55" stop-color="#125461"/>
+      <stop offset="1" stop-color="#167C8A"/>
+    </linearGradient>
+    <linearGradient id="glass" x1="830" y1="130" x2="1460" y2="830" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#8BE0E3" stop-opacity=".2"/>
+      <stop offset="1" stop-color="#B9F2E8" stop-opacity=".035"/>
+    </linearGradient>
+    <linearGradient id="fabric" x1="945" y1="350" x2="1220" y2="825" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#D4F5ED"/>
+      <stop offset="1" stop-color="#62BEC3"/>
+    </linearGradient>
+    <pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse">
+      <path d="M48 0H0V48" stroke="#C9F0EA" stroke-opacity=".055"/>
+    </pattern>
+    <filter id="blur" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="42"/>
+    </filter>
+  </defs>
+  <path fill="url(#background)" d="M0 0h1600v1000H0z"/>
+  <path fill="url(#grid)" d="M0 0h1600v1000H0z"/>
+  <circle cx="1300" cy="170" r="220" fill="#59C8CC" fill-opacity=".26" filter="url(#blur)"/>
+  <circle cx="1040" cy="900" r="270" fill="#78D9C6" fill-opacity=".2" filter="url(#blur)"/>
+  <path d="M0 758c246-93 440-67 662 17s424 100 938-89v314H0V758Z" fill="#092A36" fill-opacity=".36"/>
+  <path d="M688 120h752a26 26 0 0 1 26 26v663H688V120Z" fill="url(#glass)" stroke="#C5F1EC" stroke-opacity=".27" stroke-width="2"/>
+  <path d="M1071 120v689M688 320h778" stroke="#C5F1EC" stroke-opacity=".2" stroke-width="2"/>
+  <path d="M745 810h660" stroke="#D8F7EF" stroke-opacity=".55" stroke-width="8" stroke-linecap="round"/>
+  <path d="M780 810v64m590-64v64" stroke="#D8F7EF" stroke-opacity=".4" stroke-width="7" stroke-linecap="round"/>
+  <path d="M932 348c0-25 20-45 45-45s45 20 45 45" stroke="#D7F5EF" stroke-opacity=".9" stroke-width="9"/>
+  <path d="M977 303v-41c0-13 10-23 23-23 12 0 22 10 22 22" stroke="#D7F5EF" stroke-opacity=".9" stroke-width="8" stroke-linecap="round"/>
+  <path d="m850 388 62-27 57 30 55-30 65 27-25 84-26-13v352H900V459l-27 13-23-84Z" fill="url(#fabric)" fill-opacity=".94"/>
+  <path d="m912 361 57 30 55-30m-124 81 20 16m104-16-20 16" stroke="#2B7E88" stroke-opacity=".48" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M1142 385h236v17h-236zM1162 402h196v117h-196z" fill="#D1F3E9" fill-opacity=".75"/>
+  <path d="M1184 433h152m-152 28h105m-105 28h132" stroke="#1B7783" stroke-opacity=".5" stroke-width="7" stroke-linecap="round"/>
+  <path d="M1128 590h260v18h-260zM1150 608h216v140h-216z" fill="#D1F3E9" fill-opacity=".34"/>
+  <path d="M1180 646h156m-156 30h112m-112 30h141" stroke="#D1F3E9" stroke-opacity=".72" stroke-width="7" stroke-linecap="round"/>
+  <circle cx="541" cy="220" r="6" fill="#BFF2E6" fill-opacity=".9"/>
+  <circle cx="601" cy="278" r="3" fill="#BFF2E6" fill-opacity=".68"/>
+  <circle cx="502" cy="336" r="4" fill="#BFF2E6" fill-opacity=".55"/>
+  <path d="M0 890c250-60 440-49 668 5v105H0V890Z" fill="#082934" fill-opacity=".34"/>
+</svg>
