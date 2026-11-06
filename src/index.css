@@ -3,8 +3,9 @@
 
 :root {
   font-family: 'Cairo', 'DM Sans', 'Segoe UI', sans-serif;
-  color: #2b302d;
-  background: #f7f8f6;
+  color: #1d3038;
+  background: #f3f7f9;
+  color-scheme: light;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -19,7 +20,7 @@
 
 html {
   min-width: 360px;
-  background: #f7f8f6;
+  background: #f3f7f9;
 }
 
 body {
@@ -43,6 +44,6 @@ button:disabled {
 }
 
 ::selection {
-  background: #dce8df;
-  color: #23392d;
+  background: #ccebef;
+  color: #123d48;
 }
