@@ -58,6 +58,32 @@ export const supplierInput = z.object({
   notes: z.string().trim().max(1000).default(''),
 })
 
+export const customerInput = z.object({
+  name: z.string().trim().min(1).max(160),
+  phone: z.string().trim().max(40).default(''),
+  email: z.union([z.string().trim().email().max(254), z.literal('')]).default(''),
+  address: z.string().trim().max(500).default(''),
+  notes: z.string().trim().max(1000).default(''),
+})
+
+export const saleInput = z.object({
+  customer_id: z.string().uuid().nullable().optional(),
+  discount_tnd: z.coerce.number().finite().min(0).max(999_999_999).default(0),
+  payment_method: z.enum(['cash', 'card']),
+  lines: z.array(z.object({
+    variant_id: z.string().uuid(),
+    quantity: z.coerce.number().int().positive().max(1_000_000),
+  })).min(1).max(120),
+}).superRefine((sale, context) => {
+  const variants = new Set<string>()
+  sale.lines.forEach((line, index) => {
+    if (variants.has(line.variant_id)) {
+      context.addIssue({ code: 'custom', path: ['lines', index, 'variant_id'], message: 'A variant may only appear once in a sale.' })
+    }
+    variants.add(line.variant_id)
+  })
+})
+
 export const orderInput = z.object({
   supplier_id: z.string().uuid(),
   lines: z.array(z.object({
@@ -79,7 +105,7 @@ export const emailInput = z.string().trim().email().max(254).transform((value) =
 
 export const inviteInput = z.object({
   email: emailInput,
-  role: z.enum(['storekeeper', 'viewer']),
+  role: z.enum(['storekeeper', 'cashier', 'viewer']),
 })
 
 export const passwordInput = z.string()
@@ -89,7 +115,7 @@ export const passwordInput = z.string()
 export const teamMemberCreateInput = z.object({
   email: emailInput,
   password: passwordInput,
-  role: z.enum(['admin', 'storekeeper', 'viewer']),
+  role: z.enum(['admin', 'storekeeper', 'cashier', 'viewer']),
 })
 
 export const acceptInvitationInput = z.object({
@@ -108,7 +134,7 @@ export const passwordResetCompleteInput = z.object({
 })
 
 export const roleInput = z.object({
-  role: z.enum(['admin', 'storekeeper', 'viewer']),
+  role: z.enum(['admin', 'storekeeper', 'cashier', 'viewer']),
 })
 
 export const teamMemberStatusInput = z.object({

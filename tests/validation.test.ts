@@ -5,6 +5,7 @@ import { previewProductCsv } from '../server/import.js'
 import { applyStockMovement } from '../server/inventory.js'
 import {
   inviteInput,
+  customerInput,
   movementInput,
   orderInput,
   parseInput,
@@ -12,6 +13,7 @@ import {
   passwordResetRequestInput,
   productInput,
   roleInput,
+  saleInput,
   supplierInput,
   teamMemberCreateInput,
   teamMemberStatusInput,
@@ -84,6 +86,39 @@ test('supplier validation trims fields and supports an omitted email', () => {
   assert.equal(supplierInput.safeParse({ name: 'Atelier', email: 'not-an-email' }).success, false)
 })
 
+test('customer and sale validation enforce required fields and unique variants', () => {
+  const firstVariant = 'c3e3dce6-4427-4721-b829-4565a42bfc1c'
+  const secondVariant = '0b8d28ec-994f-4f96-885f-61a11f67e561'
+  assert.deepEqual(customerInput.parse({ name: '  Amina  ', phone: '  +216 70 ' }), {
+    name: 'Amina',
+    phone: '+216 70',
+    email: '',
+    address: '',
+    notes: '',
+  })
+  assert.equal(customerInput.safeParse({ name: '' }).success, false)
+  assert.equal(saleInput.parse({
+    payment_method: 'cash',
+    lines: [{ variant_id: firstVariant, quantity: '2' }],
+  }).discount_tnd, 0)
+  assert.equal(saleInput.safeParse({
+    payment_method: 'crypto',
+    lines: [{ variant_id: firstVariant, quantity: 1 }],
+  }).success, false)
+  assert.equal(saleInput.safeParse({
+    payment_method: 'card',
+    lines: [
+      { variant_id: firstVariant, quantity: 1 },
+      { variant_id: firstVariant, quantity: 2 },
+    ],
+  }).success, false)
+  assert.equal(saleInput.safeParse({
+    payment_method: 'card',
+    lines: [{ variant_id: secondVariant, quantity: 1 }],
+    discount_tnd: -1,
+  }).success, false)
+})
+
 test('purchase order validation requires a supplier and positive lines', () => {
   const supplierId = '0b8d28ec-994f-4f96-885f-61a11f67e561'
   const variantId = 'c3e3dce6-4427-4721-b829-4565a42bfc1c'
@@ -104,7 +139,9 @@ test('purchase order validation requires a supplier and positive lines', () => {
 test('invitation and role schemas normalize email and reject admin invitations', () => {
   assert.equal(inviteInput.parse({ email: ' MEMBER@example.com ', role: 'viewer' }).email, 'member@example.com')
   assert.equal(inviteInput.safeParse({ email: 'member@example.com', role: 'admin' }).success, false)
+  assert.equal(inviteInput.safeParse({ email: 'cashier@example.com', role: 'cashier' }).success, true)
   assert.equal(roleInput.safeParse({ role: 'storekeeper' }).success, true)
+  assert.equal(roleInput.safeParse({ role: 'cashier' }).success, true)
   assert.equal(roleInput.safeParse({ role: 'owner' }).success, false)
 })
 

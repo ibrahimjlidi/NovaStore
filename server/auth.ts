@@ -8,7 +8,7 @@ import { getPool, inTransaction } from './db.js'
 import { HttpError } from './errors.js'
 import { acceptInvitationInput, emailInput, passwordInput, teamMemberCreateInput } from './validation.js'
 
-export type StoreRole = 'admin' | 'storekeeper' | 'viewer'
+export type StoreRole = 'admin' | 'storekeeper' | 'cashier' | 'viewer'
 
 export interface AuthenticatedUser {
   id: string
@@ -47,8 +47,9 @@ declare module '@auth/core/jwt' {
 }
 
 const rolePages: Record<StoreRole, string[]> = {
-  admin: ['dashboard', 'products', 'movements', 'suppliers', 'alerts', 'reports', 'team'],
+  admin: ['dashboard', 'products', 'movements', 'suppliers', 'alerts', 'reports', 'team', 'sales'],
   storekeeper: ['dashboard', 'products', 'movements', 'suppliers', 'alerts'],
+  cashier: ['dashboard', 'products', 'sales'],
   viewer: ['dashboard', 'products', 'alerts', 'reports'],
 }
 
@@ -231,7 +232,7 @@ export async function acceptStoreInvitation(value: unknown) {
 
 export async function createStoreInvitation(
   email: string,
-  role: 'storekeeper' | 'viewer',
+  role: 'storekeeper' | 'cashier' | 'viewer',
   storeId: string,
   inviterUserId: string,
 ) {

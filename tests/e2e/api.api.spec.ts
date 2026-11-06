@@ -40,7 +40,7 @@ test('health and session endpoints return their documented JSON shapes', async (
   expect((await api.get('/api/auth/csrf')).ok()).toBeTruthy()
   const me = await (await api.get('/api/me')).json()
   expect(me.role).toBe('admin')
-  expect(me.allowed_pages).toEqual(expect.arrayContaining(['dashboard', 'products', 'team']))
+  expect(me.allowed_pages).toEqual(expect.arrayContaining(['dashboard', 'products', 'team', 'sales']))
 })
 
 test('dashboard, product search and category filters return the test store only', async () => {
@@ -116,6 +116,101 @@ test('stock movement creation, listing, insufficient stock and validation are en
   expect((await api.get('/api/movements?page=0')).status()).toBe(400)
   const invalidDays = await api.get('/api/movements?days=not-a-number')
   expect(invalidDays.status()).toBe(400)
+})
+
+test('customers and paid sales persist invoices and deduct stock atomically', async () => {
+  const customerResponse = await api.post('/api/customers', {
+    data: { name: 'E2E customer', phone: '+216 71 123 456' },
+  })
+  expect(customerResponse.status()).toBe(201)
+  const customer = await customerResponse.json()
+  expect(customer).toMatchObject({ name: 'E2E customer', phone: '+216 71 123 456', email: '' })
+  expect(await (await api.get('/api/customers?q=E2E%20customer')).json()).toEqual([
+    expect.objectContaining({ id: customer.id, name: 'E2E customer' }),
+  ])
+
+  const saleResponse = await api.post('/api/sales', {
+    data: {
+      customer_id: customer.id,
+      payment_method: 'card',
+      discount_tnd: 1,
+      lines: [{ variant_id: data.variantId, quantity: 2 }],
+    },
+  })
+  expect(saleResponse.status()).toBe(201)
+  const sale = await saleResponse.json()
+  expect(sale).toMatchObject({ status: 'completed', discount_tnd: '1.000' })
+  expect(Number(sale.invoice_number)).toBeGreaterThan(0)
+  expect(Number(sale.total_tnd)).toBeGreaterThan(0)
+
+  const sales = await (await api.get('/api/sales')).json()
+  expect(sales).toEqual(expect.arrayContaining([
+    expect.objectContaining({
+      id: sale.id,
+      customer_name: 'E2E customer',
+      payment_method: 'card',
+      total_tnd: sale.total_tnd,
+    }),
+  ]))
+  const details = await (await api.get(`/api/sales/${sale.id}`)).json()
+  expect(details.lines).toEqual([
+    expect.objectContaining({ variant_id: data.variantId, quantity: 2 }),
+  ])
+  expect(Number(details.amount_tnd)).toBe(Number(sale.total_tnd))
+
+  const simultaneousSales = await Promise.all([1, 2].map(() => api.post('/api/sales', {
+    data: {
+      payment_method: 'cash',
+      lines: [{ variant_id: data.variantId, quantity: 6 }],
+    },
+  })))
+  expect(simultaneousSales.map((response) => response.status()).sort()).toEqual([201, 409])
+
+  const products = await (await api.get('/api/products?q=E2E-BASE-001')).json()
+  expect(products[0].variants[0].quantity).toBe(4)
+
+  const insufficient = await api.post('/api/sales', {
+    data: {
+      payment_method: 'cash',
+      lines: [{ variant_id: data.variantId, quantity: 100 }],
+    },
+  })
+  expect(insufficient.status()).toBe(409)
+  expect(await (await api.get('/api/sales')).json()).toHaveLength(2)
+  expect(await (await api.get('/api/products?q=E2E-BASE-001')).json()).toMatchObject([
+    { variants: [expect.objectContaining({ quantity: 4 })] },
+  ])
+})
+
+test('cashier accounts are restricted to sales workflows', async ({ playwright }) => {
+  const email = `cashier-${Date.now()}@e2e.invalid`
+  const password = 'e2e-cashier-account-password'
+  const created = await api.post('/api/team', {
+    data: { email, password, role: 'cashier' },
+  })
+  expect(created.status()).toBe(201)
+
+  const cashierApi = await playwright.request.newContext({
+    baseURL,
+    extraHTTPHeaders: { Origin: baseURL },
+  })
+  try {
+    const csrfResponse = await cashierApi.get('/api/auth/csrf')
+    const { csrfToken } = await csrfResponse.json() as { csrfToken: string }
+    const login = await cashierApi.post('/api/auth/callback/credentials', {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Auth-Return-Redirect': '1' },
+      form: { csrfToken, email, password, callbackUrl: baseURL },
+    })
+    expect(login.ok()).toBeTruthy()
+    const me = await (await cashierApi.get('/api/me')).json()
+    expect(me.role).toBe('cashier')
+    expect(me.allowed_pages).toEqual(expect.arrayContaining(['sales', 'products']))
+    expect(me.allowed_pages).not.toContain('movements')
+    expect((await cashierApi.get('/api/sales')).status()).toBe(200)
+    expect((await cashierApi.get('/api/movements')).status()).toBe(403)
+  } finally {
+    await cashierApi.dispose()
+  }
 })
 
 test('supplier and purchase-order lifecycle updates stock exactly once', async () => {

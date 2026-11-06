@@ -27,7 +27,9 @@ async function recordSchemaOnlyMigrations(pool: Pool) {
     'suppliers.id', 'products.id', 'products.archived_at',
     'product_variants.id', 'product_variants.color_hex',
     'purchase_orders.id', 'purchase_order_lines.id',
-    'inventory_movements.id', 'password_resets.token_hash',
+    'inventory_movements.id', 'inventory_movements.sale_item_id',
+    'customers.id', 'sales.id', 'sale_items.id', 'sale_payments.id',
+    'password_resets.token_hash',
   ]
   const missing = required.filter((column) => !available.has(column))
   if (missing.length) {
@@ -41,6 +43,7 @@ async function recordSchemaOnlyMigrations(pool: Pool) {
     if (filename.startsWith('001_') || filename.startsWith('002_')) return true
     if (filename.startsWith('003_')) return available.has('store_users.disabled_at')
     if (filename.startsWith('004_')) return available.has('product_variants.low_stock_threshold')
+    if (filename.startsWith('005_')) return available.has('sale_payments.id')
     return false
   })
   await pool.query(

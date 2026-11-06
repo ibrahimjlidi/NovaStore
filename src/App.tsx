@@ -20,6 +20,7 @@ import {
   Package,
   Plus,
   Search,
+  ShoppingCart,
   ShieldCheck,
   Shirt,
   Sun,
@@ -42,8 +43,8 @@ import {
 import './App.css'
 
 type Language = 'ar' | 'fr'
-type Page = 'dashboard' | 'products' | 'movements' | 'suppliers' | 'alerts' | 'reports' | 'team'
-type Role = 'admin' | 'storekeeper' | 'viewer'
+type Page = 'dashboard' | 'products' | 'movements' | 'suppliers' | 'alerts' | 'reports' | 'team' | 'sales'
+type Role = 'admin' | 'storekeeper' | 'cashier' | 'viewer'
 type Category = 'tshirt' | 'jeans' | 'dress' | 'jacket' | 'shoes' | 'accessories'
 type Size = 'S' | 'M' | 'L' | 'XL' | 'ONE_SIZE'
 type MovementType = 'IN' | 'OUT' | 'ADJUSTMENT'
@@ -142,6 +143,48 @@ interface Supplier {
   email: string | null
   notes: string
   order_count: number
+}
+
+interface Customer {
+  id: string
+  name: string
+  phone: string
+  email: string
+  address: string
+  notes: string
+  created_at: string
+}
+
+interface Sale {
+  id: string
+  invoice_number: number | string
+  status: 'completed' | 'cancelled'
+  subtotal_tnd: number | string
+  discount_tnd: number | string
+  total_tnd: number | string
+  created_at: string
+  customer_id: string | null
+  customer_name: string | null
+  cashier_email: string
+  payment_method: 'cash' | 'card'
+}
+
+interface SaleDetails extends Sale {
+  customer_phone: string | null
+  amount_tnd: number | string
+  lines: Array<{
+    id: string
+    variant_id: string
+    quantity: number
+    unit_price_tnd: number | string
+    line_total_tnd: number | string
+    sku: string
+    name_ar: string
+    name_fr: string
+    size: Size
+    color_ar: string
+    color_fr: string
+  }>
 }
 
 interface PurchaseOrderLine {
@@ -260,6 +303,7 @@ const pageIcons = {
   alerts: AlertTriangle,
   reports: Activity,
   team: UsersRound,
+  sales: ShoppingCart,
 }
 
 const categories: Category[] = ['tshirt', 'jeans', 'dress', 'jacket', 'shoes', 'accessories']
@@ -273,14 +317,15 @@ const productPhotos: Record<Category, string> = {
 }
 const sizes: Size[] = ['S', 'M', 'L', 'XL', 'ONE_SIZE']
 const rolePages: Record<Role, Page[]> = {
-  admin: ['dashboard', 'products', 'movements', 'suppliers', 'alerts', 'reports', 'team'],
+  admin: ['dashboard', 'products', 'movements', 'suppliers', 'alerts', 'reports', 'team', 'sales'],
   storekeeper: ['dashboard', 'products', 'movements', 'suppliers', 'alerts'],
+  cashier: ['dashboard', 'products', 'sales'],
   viewer: ['dashboard', 'products', 'alerts', 'reports'],
 }
 
 const copy = {
   ar: {
-    dashboard: 'لوحة التحكم', products: 'المنتجات', movements: 'حركات المخزون', suppliers: 'الموردون والطلبات',
+    dashboard: 'لوحة التحكم', products: 'المنتجات', movements: 'حركات المخزون', suppliers: 'الموردون والطلبات', sales: 'المبيعات ونقطة البيع',
     alerts: 'التنبيهات', reports: 'التقارير', team: 'المستخدمون والصلاحيات', overview: 'نظرة عامة',
     search: 'ابحث عن منتج أو رمز...', addProduct: 'إضافة منتج', newMovement: 'حركة جديدة', newOrder: 'طلب شراء جديد',
     addSupplier: 'إضافة مورد', inventory: 'المخزون', productCount: 'عدد المنتجات', inventoryValue: 'قيمة المخزون',
@@ -304,7 +349,7 @@ const copy = {
     receive: 'تأكيد الاستلام', lines: 'البنود', addLine: 'إضافة بند', unitCost: 'تكلفة الوحدة', total: 'الإجمالي',
     createPurchaseOrder: 'إنشاء طلب شراء', noAlerts: 'لا توجد تنبيهات مخزون.', createOrder: 'طلب شراء لهذا المنتج',
     reportPeriod: 'فترة التقرير', exportExcel: 'تصدير CSV', exportPdf: 'طباعة / PDF', valuation: 'تقييم المخزون',
-    role: 'الدور', admin: 'مدير', storekeeper: 'أمين مخزن', viewer: 'مشاهد', invite: 'إضافة مستخدم',
+    role: 'الدور', admin: 'مدير', storekeeper: 'أمين مخزن', cashier: 'بائع / أمين صندوق', viewer: 'مشاهد', invite: 'إضافة مستخدم',
     inviteMember: 'إرسال دعوة', createMember: 'إنشاء حساب', directCreate: 'إضافة مباشرة', invitationMode: 'إرسال دعوة',
     createMemberSubmit: 'إنشاء المستخدم', memberCreated: 'تم إنشاء المستخدم.', memberPassword: 'كلمة المرور الأولية',
     accessMatrix: 'صلاحيات الأدوار', page: 'الصفحة', allowed: 'مسموح', restricted: 'غير مسموح',
@@ -342,9 +387,14 @@ const copy = {
     inviteSent: 'تم إرسال الدعوة بالبريد الإلكتروني.', resetLinkCreated: 'تم إنشاء رابط إعادة التعيين.',
     emailDeliveryNote: 'لم يُضبط إرسال البريد. انسخ الرابط وشاركه بأمان.',
     sendResetLink: 'إنشاء رابط إعادة تعيين',
+    customers: 'العملاء', cart: 'سلة البيع', paymentMethod: 'طريقة الدفع', cash: 'نقداً', card: 'بطاقة',
+    subtotal: 'المجموع الفرعي', discount: 'الخصم (د.ت)', confirmSale: 'تأكيد البيع', invoice: 'الفاتورة',
+    noSales: 'لا توجد مبيعات بعد.', addToCart: 'إضافة إلى السلة', remove: 'حذف', selectCustomer: 'عميل اختياري',
+    walkInCustomer: 'بيع مباشر بدون عميل', newCustomer: 'إضافة عميل', customerName: 'اسم العميل',
+    saveCustomer: 'حفظ العميل', saleComplete: 'تم تسجيل البيع وإصدار الفاتورة.', address: 'العنوان',
   },
   fr: {
-    dashboard: 'Tableau de bord', products: 'Produits', movements: 'Mouvements', suppliers: 'Fournisseurs et commandes',
+    dashboard: 'Tableau de bord', products: 'Produits', movements: 'Mouvements', suppliers: 'Fournisseurs et commandes', sales: 'Ventes / caisse',
     alerts: 'Alertes', reports: 'Rapports', team: 'Utilisateurs et rôles', overview: 'Vue d’ensemble',
     search: 'Rechercher un produit ou SKU…', addProduct: 'Ajouter un produit', newMovement: 'Nouveau mouvement', newOrder: 'Nouvelle commande',
     addSupplier: 'Ajouter un fournisseur', inventory: 'Stock', productCount: 'Produits', inventoryValue: 'Valeur du stock',
@@ -368,7 +418,7 @@ const copy = {
     receive: 'Confirmer la réception', lines: 'Lignes', addLine: 'Ajouter une ligne', unitCost: 'Coût unitaire', total: 'Total',
     createPurchaseOrder: 'Créer une commande', noAlerts: 'Aucune alerte de stock.', createOrder: 'Commander ce produit',
     reportPeriod: 'Période', exportExcel: 'Exporter CSV', exportPdf: 'Imprimer / PDF', valuation: 'Valorisation du stock',
-    role: 'Rôle', admin: 'Administrateur', storekeeper: 'Magasinier', viewer: 'Lecteur', invite: 'Ajouter un utilisateur',
+    role: 'Rôle', admin: 'Administrateur', storekeeper: 'Magasinier', cashier: 'Vendeur / Caissier', viewer: 'Lecteur', invite: 'Ajouter un utilisateur',
     inviteMember: 'Envoyer l’invitation', createMember: 'Créer le compte', directCreate: 'Créer directement', invitationMode: 'Inviter par e-mail',
     createMemberSubmit: 'Créer le compte', memberCreated: 'Utilisateur créé.', memberPassword: 'Mot de passe initial',
     accessMatrix: 'Accès par rôle', page: 'Page', allowed: 'Autorisé', restricted: 'Refusé',
@@ -406,6 +456,11 @@ const copy = {
     inviteSent: 'Invitation envoyée par e-mail.', resetLinkCreated: 'Lien de réinitialisation créé.',
     emailDeliveryNote: 'L’envoi d’e-mails n’est pas configuré. Copiez et partagez le lien de façon sécurisée.',
     sendResetLink: 'Créer un lien de réinitialisation',
+    customers: 'Clients', cart: 'Panier', paymentMethod: 'Mode de paiement', cash: 'Espèces', card: 'Carte',
+    subtotal: 'Sous-total', discount: 'Remise (TND)', confirmSale: 'Confirmer la vente', invoice: 'Facture',
+    noSales: 'Aucune vente pour le moment.', addToCart: 'Ajouter au panier', remove: 'Retirer', selectCustomer: 'Client (facultatif)',
+    walkInCustomer: 'Vente sans client', newCustomer: 'Ajouter un client', customerName: 'Nom du client',
+    saveCustomer: 'Enregistrer le client', saleComplete: 'Vente enregistrée et facture créée.', address: 'Adresse',
   },
 } as const
 
@@ -426,6 +481,7 @@ function roleName(role: Role, language: Language) {
   const values: Record<Role, { ar: string; fr: string }> = {
     admin: { ar: 'مدير', fr: 'Administrateur' },
     storekeeper: { ar: 'أمين مخزن', fr: 'Magasinier' },
+    cashier: { ar: 'بائع / أمين صندوق', fr: 'Vendeur / Caissier' },
     viewer: { ar: 'مشاهد', fr: 'Lecteur' },
   }
   return values[role][language]
@@ -455,17 +511,18 @@ function variantLabel(variant: Pick<Variant, 'size' | 'color_ar' | 'color_fr'>, 
   return `${variant.size === 'ONE_SIZE' ? (language === 'ar' ? 'مقاس واحد' : 'Taille unique') : variant.size} · ${language === 'ar' ? variant.color_ar : variant.color_fr}`
 }
 
-function Modal({ title, children, onClose, wide = false }: {
+function Modal({ title, children, onClose, wide = false, className = '' }: {
   title: string
   children: ReactNode
   onClose: () => void
   wide?: boolean
+  className?: string
 }) {
   return (
     <div className="modal-backdrop" onMouseDown={(event) => {
       if (event.target === event.currentTarget) onClose()
     }}>
-      <section className={`modal-card ${wide ? 'modal-wide' : ''}`} role="dialog" aria-modal="true" aria-label={title}>
+      <section className={`modal-card ${wide ? 'modal-wide' : ''} ${className}`} role="dialog" aria-modal="true" aria-label={title}>
         <div className="modal-header">
           <div><h2>{title}</h2></div>
           <button type="button" className="icon-button" aria-label="Close" onClick={onClose}><X size={18} /></button>
@@ -531,6 +588,9 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
   const [products, setProducts] = useState<Product[]>([])
   const [movements, setMovements] = useState<Movement[]>([])
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
+  const [customers, setCustomers] = useState<Customer[]>([])
+  const [sales, setSales] = useState<Sale[]>([])
+  const [selectedInvoice, setSelectedInvoice] = useState<SaleDetails | null>(null)
   const [orders, setOrders] = useState<PurchaseOrder[]>([])
   const [alerts, setAlerts] = useState<StockAlert[]>([])
   const [team, setTeam] = useState<TeamData | null>(null)
@@ -563,6 +623,14 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
   const [productDraft, setProductDraft] = useState<ProductDraft | null>(null)
   const [movementDraft, setMovementDraft] = useState({ variant_id: '', type: 'IN' as MovementType, quantity: '1', adjustment_sign: 1 as -1 | 1, note: '' })
   const [supplierDraft, setSupplierDraft] = useState({ name: '', phone: '', city: '', email: '', notes: '' })
+  const [customerDraft, setCustomerDraft] = useState({ name: '', phone: '', email: '', address: '', notes: '' })
+  const [customerDialog, setCustomerDialog] = useState(false)
+  const [basket, setBasket] = useState<Array<{ variant_id: string; quantity: number }>>([])
+  const [posVariantId, setPosVariantId] = useState('')
+  const [posQuantity, setPosQuantity] = useState('1')
+  const [saleCustomerId, setSaleCustomerId] = useState('')
+  const [salePaymentMethod, setSalePaymentMethod] = useState<'cash' | 'card'>('cash')
+  const [saleDiscount, setSaleDiscount] = useState('0')
   const [orderSupplier, setOrderSupplier] = useState('')
   const [orderLines, setOrderLines] = useState<Array<{ variant_id: string; quantity: string; unit_cost_tnd: string }>>([])
   const [teamFormMode, setTeamFormMode] = useState<'create' | 'invite'>('create')
@@ -795,6 +863,8 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
       nextOrders,
       nextReport,
       nextTeam,
+      nextCustomers,
+      nextSales,
     ] = await Promise.all([
       api<DashboardData>('/dashboard'),
       api<Product[]>('/products'),
@@ -814,6 +884,8 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
       nextProfile.role === 'admin'
         ? api<TeamData>('/team')
         : Promise.resolve(null),
+      allowed.has('sales') ? api<Customer[]>('/customers') : Promise.resolve([]),
+      allowed.has('sales') ? api<Sale[]>('/sales') : Promise.resolve([]),
     ])
     return {
       profile: nextProfile,
@@ -828,6 +900,8 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
       orders: nextOrders,
       report: nextReport,
       team: nextTeam,
+      customers: nextCustomers,
+      sales: nextSales,
     }
   }, [api, period])
 
@@ -844,6 +918,8 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
     setOrders(snapshot.orders)
     setReport(snapshot.report)
     setTeam(snapshot.team)
+    setCustomers(snapshot.customers)
+    setSales(snapshot.sales)
     setPage((current) => snapshot.profile.allowed_pages.includes(current) ? current : 'dashboard')
   }, [])
 
@@ -1019,6 +1095,67 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
     if (saved) {
       setSupplierDialog(false)
       setSupplierDraft({ name: '', phone: '', city: '', email: '', notes: '' })
+    }
+  }
+
+  async function saveCustomer(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    let createdCustomer: Customer | undefined
+    const saved = await runAction(async () => {
+      createdCustomer = await api<Customer>('/customers', {
+        method: 'POST',
+        body: JSON.stringify(customerDraft),
+      })
+    }, t('saveCustomer'))
+    if (saved && createdCustomer) {
+      setSaleCustomerId(createdCustomer.id)
+      setCustomerDialog(false)
+      setCustomerDraft({ name: '', phone: '', email: '', address: '', notes: '' })
+    }
+  }
+
+  function addPosLine() {
+    const selected = variantOptions.find((variant) => variant.id === posVariantId)
+    const quantity = Number(posQuantity)
+    if (!selected || !Number.isInteger(quantity) || quantity < 1) return
+    const existingQuantity = basket.find((line) => line.variant_id === selected.id)?.quantity ?? 0
+    if (existingQuantity + quantity > selected.quantity) {
+      setError(t('outOfStock'))
+      return
+    }
+    setError('')
+    setBasket((current) => {
+      const existing = current.find((line) => line.variant_id === selected.id)
+      return existing
+        ? current.map((line) => line.variant_id === selected.id ? { ...line, quantity: line.quantity + quantity } : line)
+        : [...current, { variant_id: selected.id, quantity }]
+    })
+  }
+
+  async function saveSale(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const saved = await runAction(() => api('/sales', {
+      method: 'POST',
+      body: JSON.stringify({
+        customer_id: saleCustomerId || null,
+        discount_tnd: Number(saleDiscount),
+        payment_method: salePaymentMethod,
+        lines: basket,
+      }),
+    }), t('saleComplete'))
+    if (saved) {
+      setBasket([])
+      setSaleCustomerId('')
+      setSaleDiscount('0')
+    }
+  }
+
+  async function openInvoice(saleId: string) {
+    setError('')
+    try {
+      setSelectedInvoice(await api<SaleDetails>(`/sales/${saleId}`))
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : t('apiError'))
     }
   }
 
@@ -1344,9 +1481,14 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
     key: variant.color_key, ar: variant.color_ar, fr: variant.color_fr,
   }]))).values())
   const allowedPages = profile.allowed_pages
+  const canManageStock = profile.role === 'admin' || profile.role === 'storekeeper'
+  const basketTotal = basket.reduce((sum, line) => {
+    const variant = variantOptions.find((option) => option.id === line.variant_id)
+    return sum + (variant?.price_tnd ?? 0) * line.quantity
+  }, 0)
 
   return (
-    <div className={`app-shell ${darkMode ? 'theme-dark' : ''}`} dir={direction}>
+    <div className={`app-shell ${darkMode ? 'theme-dark' : ''} ${selectedInvoice ? 'print-invoice-active' : ''}`} dir={direction}>
       {mobileNav && <button className="mobile-scrim" aria-label={t('close')} onClick={() => setMobileNav(false)} />}
       <aside className={`sidebar ${mobileNav ? 'sidebar-open' : ''}`}>
         <div className="brand-lockup"><span className="brand-mark"><Shirt size={21} /></span><span className="brand-copy"><strong>NOVA<span>STORE</span></strong><small>STOCK MANAGEMENT</small></span><button className="icon-button mobile-close" onClick={() => setMobileNav(false)} aria-label={t('close')}><X size={18} /></button></div>
@@ -1383,13 +1525,14 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
           <div className="page-heading">
             <div><span className="eyebrow">{t('generated')}</span><h1>{page === 'dashboard' ? t('overview') : pageTitle}</h1></div>
             <div className="page-heading-actions">
-              {page === 'dashboard' && profile.role !== 'viewer' && <button className="button button-primary" onClick={() => openMovement()}><Plus size={16} />{t('newMovement')}</button>}
-              {page === 'products' && profile.role !== 'viewer' && <>
+              {page === 'dashboard' && canManageStock && <button className="button button-primary" onClick={() => openMovement()}><Plus size={16} />{t('newMovement')}</button>}
+              {page === 'sales' && <button className="button button-primary" onClick={() => setCustomerDialog(true)}><Plus size={16} />{t('newCustomer')}</button>}
+              {page === 'products' && canManageStock && <>
                 {profile.role === 'admin' && <button className="button button-quiet" onClick={() => setImportDialog(true)}><Download size={16} />{t('importCsv')}</button>}
                 <button className="button button-primary" onClick={beginAddProduct}><Plus size={16} />{t('addProduct')}</button>
               </>}
-              {page === 'movements' && profile.role !== 'viewer' && <button className="button button-primary" onClick={() => openMovement()}><Plus size={16} />{t('newMovement')}</button>}
-              {page === 'suppliers' && profile.role !== 'viewer' && <button className="button button-primary" onClick={() => supplierTab === 'orders' ? openNewOrder() : setSupplierDialog(true)}><Plus size={16} />{supplierTab === 'orders' ? t('newOrder') : t('addSupplier')}</button>}
+              {page === 'movements' && canManageStock && <button className="button button-primary" onClick={() => openMovement()}><Plus size={16} />{t('newMovement')}</button>}
+              {page === 'suppliers' && canManageStock && <button className="button button-primary" onClick={() => supplierTab === 'orders' ? openNewOrder() : setSupplierDialog(true)}><Plus size={16} />{supplierTab === 'orders' ? t('newOrder') : t('addSupplier')}</button>}
             </div>
           </div>
 
@@ -1434,9 +1577,49 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
                 <label className="filter-select"><span>{t('color')}</span><select value={colorFilter} onChange={(event) => setColorFilter(event.target.value)}><option value="all">{t('allColors')}</option>{colorOptions.map((color) => <option key={color.key} value={color.key}>{language === 'ar' ? color.ar : color.fr}</option>)}</select></label>
                 <label className="low-filter"><input type="checkbox" checked={lowOnly} onChange={(event) => setLowOnly(event.target.checked)} />{t('lowOnly')}</label>
               </div>
-              <ProductTable products={localizedProducts} language={language} t={t} statusFor={statusFor} formattedMoney={formattedMoney} empty={t('noProducts')} onView={setSelectedProduct} actions={profile.role !== 'viewer' ? (product) => <div className="table-actions"><button className="icon-button" aria-label={t('edit')} onClick={() => beginEditProduct(product)}><FileText size={16} /></button>{profile.role === 'admin' && <button className="icon-button danger-action" aria-label={t('archive')} onClick={() => archiveProduct(product)}><X size={16} /></button>}</div> : undefined} />
+              <ProductTable products={localizedProducts} language={language} t={t} statusFor={statusFor} formattedMoney={formattedMoney} empty={t('noProducts')} onView={setSelectedProduct} actions={canManageStock ? (product) => <div className="table-actions"><button className="icon-button" aria-label={t('edit')} onClick={() => beginEditProduct(product)}><FileText size={16} /></button>{profile.role === 'admin' && <button className="icon-button danger-action" aria-label={t('archive')} onClick={() => archiveProduct(product)}><X size={16} /></button>}</div> : undefined} />
               <div className="table-footnote"><span>{localizedProducts.length} / {products.length} {t('products').toLocaleLowerCase(language)}</span><span>{t('stockHistoryNote')}</span></div>
             </section>
+          )}
+
+          {page === 'sales' && (
+            <div className="page-stack">
+              <section className="panel table-panel">
+                <PanelHeading title={t('cart')} subtitle={t('products')} />
+                <form className="form-stack" onSubmit={saveSale}>
+                  <div className="filter-toolbar">
+                    <label className="filter-select"><span>{t('variant')}</span><select required aria-label={t('variant')} value={posVariantId} onChange={(event) => setPosVariantId(event.target.value)}><option value="">{t('selectProduct')}</option>{products.map((product) => <optgroup key={product.id} label={`${product.sku} · ${productName(product, language)}`}>{product.variants.map((variant) => <option key={variant.id} value={variant.id} disabled={variant.quantity === 0}>{variantLabel(variant, language)} · {variant.quantity} {t('units')} · {formattedMoney(product.price_tnd)}</option>)}</optgroup>)}</select></label>
+                    <label className="filter-select"><span>{t('quantity')}</span><input aria-label={t('quantity')} type="number" min="1" step="1" value={posQuantity} onChange={(event) => setPosQuantity(event.target.value)} /></label>
+                    <button className="button button-outline" type="button" onClick={addPosLine}><Plus size={15} />{t('addToCart')}</button>
+                  </div>
+                  {basket.length ? <div className="table-scroll"><table className="data-table"><thead><tr><th>{t('product')}</th><th>{t('variant')}</th><th>{t('quantity')}</th><th className="number-cell">{t('total')}</th><th>{t('actions')}</th></tr></thead><tbody>
+                    {basket.map((line) => {
+                      const variant = variantOptions.find((option) => option.id === line.variant_id)
+                      if (!variant) return null
+                      return <tr key={line.variant_id}><td>{variant.product_name} <small>{variant.sku}</small></td><td>{variantLabel(variant, language)}</td><td><input aria-label={`${t('quantity')} ${variant.sku}`} type="number" min="1" max={variant.quantity} value={line.quantity} onChange={(event) => {
+                        const nextQuantity = Number(event.target.value)
+                        if (Number.isInteger(nextQuantity) && nextQuantity >= 1) {
+                          setBasket((current) => current.map((item) => item.variant_id === line.variant_id
+                            ? { ...item, quantity: Math.min(nextQuantity, variant.quantity) }
+                            : item))
+                        }
+                      }} /></td><td className="number-cell">{formattedMoney(variant.price_tnd * line.quantity)}</td><td><button className="button button-quiet button-small danger-action" type="button" aria-label={`${t('remove')} ${variant.sku}`} onClick={() => setBasket((current) => current.filter((item) => item.variant_id !== line.variant_id))}>{t('remove')}</button></td></tr>
+                    })}
+                  </tbody></table></div> : <EmptyState>{t('noProducts')}</EmptyState>}
+                  <div className="filter-toolbar">
+                    <label className="filter-select"><span>{t('customers')}</span><select value={saleCustomerId} onChange={(event) => setSaleCustomerId(event.target.value)}><option value="">{t('walkInCustomer')}</option>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}{customer.phone ? ` · ${customer.phone}` : ''}</option>)}</select></label>
+                    <button className="button button-quiet" type="button" onClick={() => setCustomerDialog(true)}><Plus size={15} />{t('newCustomer')}</button>
+                    <label className="filter-select"><span>{t('discount')}</span><input type="number" min="0" max={basketTotal} step="0.001" value={saleDiscount} onChange={(event) => setSaleDiscount(event.target.value)} /></label>
+                    <label className="filter-select"><span>{t('paymentMethod')}</span><select value={salePaymentMethod} onChange={(event) => setSalePaymentMethod(event.target.value as 'cash' | 'card')}><option value="cash">{t('cash')}</option><option value="card">{t('card')}</option></select></label>
+                  </div>
+                  <div className="panel-heading"><strong>{t('subtotal')}: {formattedMoney(basketTotal)}</strong><strong>{t('total')}: {formattedMoney(Math.max(0, basketTotal - Number(saleDiscount || 0)))}</strong></div>
+                  <div className="modal-actions"><button className="button button-primary" disabled={saving || basket.length === 0}>{t('confirmSale')}</button></div>
+                </form>
+              </section>
+              <section className="panel table-panel"><PanelHeading title={t('sales')} subtitle={`${sales.length} ${t('sales').toLocaleLowerCase(language)}`} />
+                {sales.length ? <div className="table-scroll"><table className="data-table"><thead><tr><th>{t('invoice')}</th><th>{t('date')}</th><th>{t('customers')}</th><th>{t('user')}</th><th>{t('paymentMethod')}</th><th className="number-cell">{t('total')}</th><th>{t('actions')}</th></tr></thead><tbody>{sales.map((sale) => <tr key={sale.id}><td><strong>INV-{String(sale.invoice_number).padStart(6, '0')}</strong></td><td>{dateLabel(sale.created_at, language, true)}</td><td>{sale.customer_name ?? t('walkInCustomer')}</td><td>{sale.cashier_email}</td><td>{t(sale.payment_method)}</td><td className="number-cell"><strong>{formattedMoney(sale.total_tnd)}</strong></td><td><button className="button button-quiet button-small" onClick={() => void openInvoice(sale.id)}>{t('invoice')}</button></td></tr>)}</tbody></table></div> : <EmptyState>{t('noSales')}</EmptyState>}
+              </section>
+            </div>
           )}
 
           {page === 'movements' && (
@@ -1496,7 +1679,7 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
                 <section className="panel table-panel"><PanelHeading title={t('team')} subtitle={`${team.users.length} ${t('team').toLocaleLowerCase(language)}`} />
                   {team.users.length ? <div className="table-scroll"><table className="data-table"><thead><tr><th>{t('email')}</th><th>{t('role')}</th><th>{t('memberStatus')}</th><th>{t('date')}</th><th>{t('actions')}</th></tr></thead><tbody>{team.users.map((member) => {
                     const isActive = !member.disabled_at
-                    return <tr key={member.id}><td>{member.email}{member.id === profile.id && <span className="you-tag">{language === 'ar' ? 'أنت' : 'Vous'}</span>}</td><td><select className="role-select" value={member.role} disabled={member.id === profile.id || !isActive || saving} onChange={(event) => updateRole(member.id, event.target.value as Role)}><option value="admin">{t('admin')}</option><option value="storekeeper">{t('storekeeper')}</option><option value="viewer">{t('viewer')}</option></select></td><td><span className={`status-badge ${isActive ? 'status-inStock' : 'status-outOfStock'}`}>{t(isActive ? 'activeMember' : 'disabledMember')}</span></td><td>{dateLabel(member.created_at, language)}</td><td><div className="table-actions"><button className="button button-quiet button-small" disabled={saving || !isActive} onClick={() => void issuePasswordReset(member.id)}>{t('sendResetLink')}</button>{member.id !== profile.id && <button className={`button button-small ${isActive ? 'button-outline' : 'button-primary'}`} disabled={saving} onClick={() => void setTeamMemberActive(member, !isActive)}>{t(isActive ? 'deactivateMember' : 'reactivateMember')}</button>}</div></td></tr>
+                    return <tr key={member.id}><td>{member.email}{member.id === profile.id && <span className="you-tag">{language === 'ar' ? 'أنت' : 'Vous'}</span>}</td><td><select className="role-select" value={member.role} disabled={member.id === profile.id || !isActive || saving} onChange={(event) => updateRole(member.id, event.target.value as Role)}><option value="admin">{t('admin')}</option><option value="storekeeper">{t('storekeeper')}</option><option value="cashier">{t('cashier')}</option><option value="viewer">{t('viewer')}</option></select></td><td><span className={`status-badge ${isActive ? 'status-inStock' : 'status-outOfStock'}`}>{t(isActive ? 'activeMember' : 'disabledMember')}</span></td><td>{dateLabel(member.created_at, language)}</td><td><div className="table-actions"><button className="button button-quiet button-small" disabled={saving || !isActive} onClick={() => void issuePasswordReset(member.id)}>{t('sendResetLink')}</button>{member.id !== profile.id && <button className={`button button-small ${isActive ? 'button-outline' : 'button-primary'}`} disabled={saving} onClick={() => void setTeamMemberActive(member, !isActive)}>{t(isActive ? 'deactivateMember' : 'reactivateMember')}</button>}</div></td></tr>
                   })}</tbody></table></div> : <EmptyState>{t('noTeam')}</EmptyState>}
                 </section>
                 <section className="panel invite-panel"><div className="panel-heading"><div><h2>{t('invite')}</h2><p>{t('pendingInvitations')}</p></div><span className="panel-icon"><UsersRound size={18} /></span></div>
@@ -1509,12 +1692,12 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
                       <label>{t('inviteEmail')}<input type="email" required maxLength={254} value={memberDraft.email} onChange={(event) => setMemberDraft({ ...memberDraft, email: event.target.value })} /></label>
                       <label>{t('memberPassword')}<input type="password" required minLength={12} maxLength={72} autoComplete="new-password" value={memberDraft.password} onChange={(event) => setMemberDraft({ ...memberDraft, password: event.target.value })} /></label>
                       <label>{t('confirmPassword')}<input type="password" required minLength={12} maxLength={72} autoComplete="new-password" value={memberDraft.passwordConfirm} onChange={(event) => setMemberDraft({ ...memberDraft, passwordConfirm: event.target.value })} /></label>
-                      <label>{t('role')}<select value={memberDraft.role} onChange={(event) => setMemberDraft({ ...memberDraft, role: event.target.value as Role })}><option value="admin">{t('admin')}</option><option value="storekeeper">{t('storekeeper')}</option><option value="viewer">{t('viewer')}</option></select></label>
+                      <label>{t('role')}<select value={memberDraft.role} onChange={(event) => setMemberDraft({ ...memberDraft, role: event.target.value as Role })}><option value="admin">{t('admin')}</option><option value="storekeeper">{t('storekeeper')}</option><option value="cashier">{t('cashier')}</option><option value="viewer">{t('viewer')}</option></select></label>
                       <button className="button button-primary" disabled={saving}><Plus size={16} />{t('createMemberSubmit')}</button>
                     </form>
                     : <form className="form-stack" onSubmit={sendInvitation}>
                       <label>{t('inviteEmail')}<input type="email" required maxLength={254} value={inviteDraft.email} onChange={(event) => setInviteDraft({ ...inviteDraft, email: event.target.value })} /></label>
-                      <label>{t('role')}<select value={inviteDraft.role} onChange={(event) => setInviteDraft({ ...inviteDraft, role: event.target.value as Role })}><option value="storekeeper">{t('storekeeper')}</option><option value="viewer">{t('viewer')}</option></select></label>
+                      <label>{t('role')}<select value={inviteDraft.role} onChange={(event) => setInviteDraft({ ...inviteDraft, role: event.target.value as Role })}><option value="storekeeper">{t('storekeeper')}</option><option value="cashier">{t('cashier')}</option><option value="viewer">{t('viewer')}</option></select></label>
                       <button className="button button-primary" disabled={saving}><Plus size={16} />{t('inviteMember')}</button>
                     </form>}
                   <div className="pending-list"><h3>{t('pendingInvitations')}</h3>{team.invitations.length ? team.invitations.map((invite) => <div className="pending-row" key={invite.id}><span>{invite.email}</span><span className="role-pill">{roleName(invite.role, language)}</span></div>) : <p className="muted-copy">—</p>}</div>
@@ -1522,8 +1705,8 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
                 </section>
               </div>
               {passwordResetLink && <section className="panel account-link"><p>{!passwordResetLink.email_sent && t('emailDeliveryNote')}</p><a href={passwordResetLink.url} referrerPolicy="no-referrer">{passwordResetLink.url}</a><button className="button button-outline button-small" onClick={() => void copyAccountLink(passwordResetLink.url)}>{t('copyLink')}</button></section>}
-              <section className="panel table-panel"><div className="panel-heading"><div><h2><ShieldCheck size={18} />{t('accessMatrix')}</h2><p>{t('role')}</p></div><select className="select-control" value={teamRoleFilter} onChange={(event) => setTeamRoleFilter(event.target.value as Role)}><option value="admin">{t('admin')}</option><option value="storekeeper">{t('storekeeper')}</option><option value="viewer">{t('viewer')}</option></select></div>
-                <div className="access-grid">{(['dashboard', 'products', 'movements', 'suppliers', 'alerts', 'reports', 'team'] as Page[]).map((item) => {
+              <section className="panel table-panel"><div className="panel-heading"><div><h2><ShieldCheck size={18} />{t('accessMatrix')}</h2><p>{t('role')}</p></div><select className="select-control" value={teamRoleFilter} onChange={(event) => setTeamRoleFilter(event.target.value as Role)}><option value="admin">{t('admin')}</option><option value="storekeeper">{t('storekeeper')}</option><option value="cashier">{t('cashier')}</option><option value="viewer">{t('viewer')}</option></select></div>
+                <div className="access-grid">{(['dashboard', 'products', 'movements', 'suppliers', 'alerts', 'reports', 'team', 'sales'] as Page[]).map((item) => {
                   const Icon = pageIcons[item]
                   const allowed = rolePages[teamRoleFilter].includes(item)
                   return <div className="access-item" key={item}><span><Icon size={16} />{t(item)}</span><span className={`access-indicator ${allowed ? 'allowed' : 'restricted'}`}>{allowed ? <Check size={13} /> : <X size={13} />}{allowed ? t('allowed') : t('restricted')}</span></div>
@@ -1575,7 +1758,7 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
             </table></div>
           </section>
           <div className="modal-actions product-detail-actions">
-            {profile.role !== 'viewer' && <>
+            {canManageStock && <>
               <button className="button button-outline" onClick={() => { const product = selectedProduct; setSelectedProduct(null); beginEditProduct(product) }}><FileText size={15} />{t('edit')}</button>
               <button className="button button-outline" onClick={() => { const product = selectedProduct; setSelectedProduct(null); openMovement(product) }}><ArrowLeftRight size={15} />{t('newMovement')}</button>
               {profile.allowed_pages.includes('suppliers') && <button className="button button-primary" onClick={() => { const product = selectedProduct; setSelectedProduct(null); openNewOrder(product) }}><Truck size={15} />{t('createOrder')}</button>}
@@ -1594,6 +1777,35 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
           <label>{t('movementNote')}<textarea maxLength={500} rows={3} value={movementDraft.note} onChange={(event) => setMovementDraft({ ...movementDraft, note: event.target.value })} /></label>
           <div className="modal-actions"><button className="button button-outline" type="button" onClick={() => setMovementDialog(false)}>{t('cancel')}</button><button className="button button-primary" disabled={saving}>{t('create')}</button></div>
         </form>
+      </Modal>}
+
+      {customerDialog && <Modal title={t('newCustomer')} onClose={() => setCustomerDialog(false)}>
+        <form className="form-stack" onSubmit={saveCustomer}>
+          <label>{t('customerName')}<input required maxLength={160} value={customerDraft.name} onChange={(event) => setCustomerDraft({ ...customerDraft, name: event.target.value })} /></label>
+          <label>{t('phone')}<input maxLength={40} value={customerDraft.phone} onChange={(event) => setCustomerDraft({ ...customerDraft, phone: event.target.value })} /></label>
+          <label>{t('email')}<input type="email" maxLength={254} value={customerDraft.email} onChange={(event) => setCustomerDraft({ ...customerDraft, email: event.target.value })} /></label>
+          <label>{t('address')}<input maxLength={500} value={customerDraft.address} onChange={(event) => setCustomerDraft({ ...customerDraft, address: event.target.value })} /></label>
+          <div className="modal-actions"><button className="button button-outline" type="button" onClick={() => setCustomerDialog(false)}>{t('cancel')}</button><button className="button button-primary" disabled={saving}>{t('saveCustomer')}</button></div>
+        </form>
+      </Modal>}
+
+      {selectedInvoice && <Modal
+        title={`${t('invoice')} INV-${String(selectedInvoice.invoice_number).padStart(6, '0')}`}
+        onClose={() => setSelectedInvoice(null)}
+        wide
+        className="invoice-dialog"
+      >
+        <div className="invoice-print">
+          <div className="invoice-heading"><h2>{profile.store.name}</h2><strong>INV-{String(selectedInvoice.invoice_number).padStart(6, '0')}</strong></div>
+          <p>{t('date')}: {dateLabel(selectedInvoice.created_at, language, true)}</p>
+          <p>{t('customers')}: {selectedInvoice.customer_name ?? t('walkInCustomer')}{selectedInvoice.customer_phone ? ` · ${selectedInvoice.customer_phone}` : ''}</p>
+          <p>{t('user')}: {selectedInvoice.cashier_email}</p>
+          <div className="table-scroll"><table className="data-table"><thead><tr><th>{t('product')}</th><th>{t('variant')}</th><th>{t('quantity')}</th><th className="number-cell">{t('price')}</th><th className="number-cell">{t('total')}</th></tr></thead><tbody>
+            {selectedInvoice.lines.map((line) => <tr key={line.id}><td>{language === 'ar' ? line.name_ar : line.name_fr}<small>{line.sku}</small></td><td>{line.size} · {language === 'ar' ? line.color_ar : line.color_fr}</td><td>{line.quantity}</td><td className="number-cell">{formattedMoney(line.unit_price_tnd)}</td><td className="number-cell">{formattedMoney(line.line_total_tnd)}</td></tr>)}
+          </tbody></table></div>
+          <div className="invoice-totals"><p>{t('subtotal')}: <strong>{formattedMoney(selectedInvoice.subtotal_tnd)}</strong></p><p>{t('discount')}: <strong>{formattedMoney(selectedInvoice.discount_tnd)}</strong></p><p>{t('total')}: <strong>{formattedMoney(selectedInvoice.total_tnd)}</strong></p><p>{t('paymentMethod')}: <strong>{t(selectedInvoice.payment_method)}</strong></p></div>
+        </div>
+        <div className="modal-actions invoice-print-actions"><button className="button button-primary" onClick={() => window.print()}><FileText size={15} />{t('exportPdf')}</button><button className="button button-quiet" onClick={() => setSelectedInvoice(null)}>{t('close')}</button></div>
       </Modal>}
 
       {supplierDialog && <Modal title={t('addSupplier')} onClose={() => setSupplierDialog(false)}>

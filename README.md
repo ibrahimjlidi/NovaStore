@@ -44,7 +44,7 @@ NovaStore is a bilingual (Arabic RTL / French) inventory application for clothin
    npm.cmd run dev
    ```
 
-   Open `http://localhost:5173`. Migrations create the store and bootstrap administrator when the bootstrap variables are set. Public sign-up is disabled; administrators invite storekeepers and viewers.
+   Open `http://localhost:5173`. Migrations create the store and bootstrap administrator when the bootstrap variables are set. Public sign-up is disabled; administrators invite storekeepers, cashiers, and viewers.
 
 4. Existing Clerk-era team members have no password after migration. Sign in as the bootstrap administrator, open **Users and roles**, and create a one-time reset link for each existing member. Pending Clerk invitations are revoked by migration 002 and must be re-created.
 
@@ -93,10 +93,11 @@ Keep database and authentication secrets in encrypted environment settings, not 
 ## Workflows
 
 - **Products:** search, filter by category/size/color/stock status, maintain variants and product-level thresholds with optional per-variant overrides, and archive products without removing movement history.
+- **Sales:** administrators and cashiers can manage customer records, record a fully paid cash/card sale, apply a fixed TND discount, review their sales history, and open/print a numbered invoice. Sale creation, payment recording, and stock deduction happen in one transaction; concurrent or insufficient-stock sales cannot oversell inventory. Partial payments, returns, taxes, and cash-drawer reconciliation are not yet included.
 - **Stock movements:** create incoming, outgoing, or signed adjustment entries and browse the 90-day history in pages. The API locks the variant and rejects any operation that would make stock negative.
 - **Purchase orders:** create and edit or cancel drafts, then send and receive orders. Receiving is transactional and creates one incoming movement for every order line.
 - **Alerts and reports:** low/out-of-stock products, inventory valuation, period-based movement charts, CSV export, and browser print/PDF.
-- **Users and roles:** administrators can create accounts directly with an initial password or invite members by email, then assign Admin, Storekeeper, or Viewer access. The API enforces the same role boundaries as navigation.
+- **Users and roles:** administrators can create accounts directly with an initial password or invite members by email, then assign Admin, Storekeeper, Cashier, or Viewer access. The API enforces the same role boundaries as navigation.
 - **Team member CRUD:** administrators can list members, change roles, issue password-reset links, and deactivate/reactivate accounts. Deactivation revokes active sessions while retaining inventory and purchase-order history; the final active administrator cannot be removed or demoted.
 - **Languages and theme:** Arabic is the default, with a French switch and light/dark mode.
 

@@ -253,3 +253,34 @@ test('admin signs in, completes inventory workflows, exports reports, and manage
   await navigation.getByRole('button', { name: 'Produits' }).click()
   await expect(page.getByRole('button', { name: 'Ajouter un produit' })).toHaveCount(0)
 })
+
+test('admin records a POS sale and sees its invoice in sales history', async ({ page }) => {
+  const data = await readE2eContext()
+  await page.addInitScript(() => {
+    window.print = () => window.sessionStorage.setItem('e2e-invoice-print-called', 'true')
+  })
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Français' }).click()
+  await page.getByLabel('E-mail').fill(data.adminEmail)
+  await page.getByLabel('Mot de passe').fill(data.adminPassword)
+  await page.getByRole('button', { name: 'Connexion' }).click()
+  await expect(page.getByRole('heading', { name: 'Vue d’ensemble' })).toBeVisible()
+
+  await page.getByRole('navigation').getByRole('button', { name: 'Ventes / caisse' }).click()
+  await page.getByRole('combobox', { name: 'Taille et couleur' }).selectOption(data.variantId)
+  await page.getByRole('button', { name: 'Ajouter au panier' }).click()
+  await page.getByRole('button', { name: 'Confirmer la vente' }).click()
+  await expect(page.getByText('Vente enregistrée et facture créée.')).toBeVisible()
+  const invoiceRow = page.getByRole('row').filter({ hasText: 'INV-' })
+  await expect(invoiceRow).toHaveCount(1)
+  await invoiceRow.getByRole('button', { name: 'Facture' }).click()
+  await expect(page.getByRole('dialog', { name: /Facture INV-/ })).toBeVisible()
+  await page.getByRole('button', { name: 'Imprimer / PDF' }).click()
+  await expect.poll(() => page.evaluate(() => window.sessionStorage.getItem('e2e-invoice-print-called'))).toBe('true')
+
+  const products = await page.evaluate(async () => {
+    const response = await fetch('/api/products?q=E2E-BASE-001')
+    return response.json()
+  })
+  expect(products[0].variants[0].quantity).toBe(11)
+})

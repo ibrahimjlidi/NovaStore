@@ -1223,6 +1223,28 @@
   width: min(760px, 100%);
 }
 
+.invoice-heading,
+.invoice-totals {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.invoice-heading {
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.invoice-totals {
+  flex-wrap: wrap;
+  margin-top: 16px;
+}
+
+.invoice-heading h2,
+.invoice-totals p {
+  margin: 0;
+}
+
 @keyframes modal-in {
   from { opacity: 0; transform: translateY(7px) scale(.99); }
   to { opacity: 1; transform: translateY(0) scale(1); }
@@ -2057,5 +2079,33 @@
   .stat-card {
     break-inside: avoid;
     box-shadow: none;
+  }
+
+  .print-invoice-active .sidebar,
+  .print-invoice-active .workspace,
+  .invoice-dialog .modal-header,
+  .invoice-print-actions {
+    display: none !important;
+  }
+
+  .print-invoice-active .modal-backdrop {
+    position: static;
+    display: block;
+    padding: 0;
+    background: #fff;
+    backdrop-filter: none;
+  }
+
+  .invoice-dialog {
+    width: 100%;
+    max-height: none;
+    padding: 0;
+    overflow: visible;
+    color: #222;
+    background: #fff;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    animation: none;
   }
 }

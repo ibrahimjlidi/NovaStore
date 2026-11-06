@@ -9,6 +9,10 @@ export async function resetStore(context: E2eContext) {
   const pool = new Pool({ connectionString, max: 1 })
   try {
     await pool.query('DELETE FROM inventory_movements WHERE store_id = $1', [context.storeId])
+    await pool.query('DELETE FROM sale_payments WHERE store_id = $1', [context.storeId])
+    await pool.query('DELETE FROM sale_items WHERE store_id = $1', [context.storeId])
+    await pool.query('DELETE FROM sales WHERE store_id = $1', [context.storeId])
+    await pool.query('DELETE FROM customers WHERE store_id = $1', [context.storeId])
     await pool.query('DELETE FROM purchase_orders WHERE store_id = $1', [context.storeId])
     await pool.query('DELETE FROM purchase_order_lines WHERE store_id = $1', [context.storeId])
     await pool.query('DELETE FROM product_variants WHERE store_id = $1 AND product_id <> $2', [context.storeId, context.productId])

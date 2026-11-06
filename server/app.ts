@@ -21,6 +21,7 @@ import { previewProductCsv } from './import.js'
 import { applyStockMovement } from './inventory.js'
 import {
   inviteInput,
+  customerInput,
   movementInput,
   orderInput,
   parseInput,
@@ -28,6 +29,7 @@ import {
   passwordResetRequestInput,
   productInput,
   roleInput,
+  saleInput,
   supplierInput,
   teamMemberStatusInput,
 } from './validation.js'
@@ -37,6 +39,7 @@ const api = express.Router()
 const admin = requireRole('admin')
 const inventoryUsers = requireRole('admin', 'storekeeper')
 const reportReaders = requireRole('admin', 'viewer')
+const salesUsers = requireRole('admin', 'cashier')
 
 app.disable('x-powered-by')
 app.set('trust proxy', 1)
@@ -124,6 +127,169 @@ api.get('/me', (request: AuthenticatedRequest, response) => {
     store: { id: user.store_id, name: user.store_name, city: user.store_city, currency: 'TND' },
     allowed_pages: getAllowedPages(user.role),
   })
+})
+
+api.get('/customers', salesUsers, async (request: AuthenticatedRequest, response) => {
+  const search = typeof request.query.q === 'string' ? request.query.q.trim() : ''
+  if (search.length > 100) throw new HttpError(400, 'Customer search must be 100 characters or fewer.', 'validation_error')
+  const customers = await getPool().query(
+    `SELECT id, name, phone, email, address, notes, created_at
+     FROM customers
+     WHERE store_id = $1 AND ($2 = '' OR name ILIKE $3 OR phone ILIKE $3 OR email ILIKE $3)
+     ORDER BY name, id LIMIT 100`,
+    [request.user!.store_id, search, `%${search}%`],
+  )
+  response.json(customers.rows)
+})
+
+api.post('/customers', salesUsers, async (request: AuthenticatedRequest, response) => {
+  const input = parseInput(customerInput, request.body)
+  const created = await getPool().query(
+    `INSERT INTO customers (store_id, name, phone, email, address, notes)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     RETURNING id, name, phone, email, address, notes, created_at`,
+    [request.user!.store_id, input.name, input.phone, input.email, input.address, input.notes],
+  )
+  response.status(201).json(created.rows[0])
+})
+
+api.get('/sales', salesUsers, async (request: AuthenticatedRequest, response) => {
+  const cashierOnly = request.user!.role === 'cashier'
+  const result = await getPool().query(
+    `SELECT s.id, s.invoice_number, s.status, s.subtotal_tnd, s.discount_tnd, s.total_tnd, s.created_at,
+            c.id AS customer_id, c.name AS customer_name, u.email AS cashier_email,
+            payment.method AS payment_method
+     FROM sales s
+     LEFT JOIN customers c ON c.id = s.customer_id AND c.store_id = s.store_id
+     JOIN store_users u ON u.id = s.cashier_user_id AND u.store_id = s.store_id
+     JOIN sale_payments payment ON payment.sale_id = s.id AND payment.store_id = s.store_id
+     WHERE s.store_id = $1 AND ($2::boolean = false OR s.cashier_user_id = $3)
+     ORDER BY s.created_at DESC, s.invoice_number DESC LIMIT 200`,
+    [request.user!.store_id, cashierOnly, request.user!.id],
+  )
+  response.json(result.rows)
+})
+
+api.get('/sales/:id', salesUsers, async (request: AuthenticatedRequest, response) => {
+  const sale = await getPool().query(
+    `SELECT s.id, s.invoice_number, s.status, s.subtotal_tnd, s.discount_tnd, s.total_tnd, s.created_at,
+            c.id AS customer_id, c.name AS customer_name, c.phone AS customer_phone,
+            u.email AS cashier_email, payment.method AS payment_method, payment.amount_tnd
+     FROM sales s
+     LEFT JOIN customers c ON c.id = s.customer_id AND c.store_id = s.store_id
+     JOIN store_users u ON u.id = s.cashier_user_id AND u.store_id = s.store_id
+     JOIN sale_payments payment ON payment.sale_id = s.id AND payment.store_id = s.store_id
+     WHERE s.id = $1 AND s.store_id = $2
+       AND ($3::boolean = false OR s.cashier_user_id = $4)`,
+    [request.params.id, request.user!.store_id, request.user!.role === 'cashier', request.user!.id],
+  )
+  if (!sale.rowCount) throw new HttpError(404, 'Sale not found.', 'not_found')
+  const lines = await getPool().query(
+    `SELECT si.id, si.variant_id, si.quantity, si.unit_price_tnd, si.line_total_tnd,
+            p.sku, p.name_ar, p.name_fr, v.size, v.color_ar, v.color_fr
+     FROM sale_items si
+     JOIN product_variants v ON v.id = si.variant_id AND v.store_id = si.store_id
+     JOIN products p ON p.id = v.product_id AND p.store_id = v.store_id
+     WHERE si.sale_id = $1 AND si.store_id = $2
+     ORDER BY p.sku, v.size, v.color_key`,
+    [request.params.id, request.user!.store_id],
+  )
+  response.json({ ...sale.rows[0], lines: lines.rows })
+})
+
+api.post('/sales', salesUsers, async (request: AuthenticatedRequest, response) => {
+  const input = parseInput(saleInput, request.body)
+  const created = await inTransaction(async (client) => {
+    if (input.customer_id) {
+      const customer = await client.query(
+        'SELECT id FROM customers WHERE id = $1 AND store_id = $2',
+        [input.customer_id, request.user!.store_id],
+      )
+      if (!customer.rowCount) throw new HttpError(404, 'Customer not found.', 'not_found')
+    }
+
+    const variantIds = input.lines.map((line) => line.variant_id)
+    const variants = await client.query<{ id: string; price_tnd: string }>(
+      `SELECT v.id, p.price_tnd
+       FROM product_variants v
+       JOIN products p ON p.id = v.product_id AND p.store_id = v.store_id
+       WHERE v.store_id = $1 AND v.id = ANY($2::uuid[]) AND p.archived_at IS NULL
+       ORDER BY v.id FOR UPDATE OF v`,
+      [request.user!.store_id, variantIds],
+    )
+    if (variants.rowCount !== input.lines.length) {
+      throw new HttpError(404, 'One or more product variants are unavailable.', 'not_found')
+    }
+    const balances = await client.query<{ variant_id: string; quantity: number }>(
+      `SELECT variant_id,
+              SUM(CASE WHEN type = 'IN' THEN quantity WHEN type = 'OUT' THEN -quantity
+                       ELSE quantity * adjustment_sign END)::int AS quantity
+       FROM inventory_movements
+       WHERE store_id = $1 AND variant_id = ANY($2::uuid[])
+       GROUP BY variant_id`,
+      [request.user!.store_id, variantIds],
+    )
+    const stockByVariant = new Map(balances.rows.map((balance) => [balance.variant_id, Number(balance.quantity)]))
+    for (const line of input.lines) {
+      applyStockMovement(stockByVariant.get(line.variant_id) ?? 0, {
+        type: 'OUT',
+        quantity: line.quantity,
+        variant_id: line.variant_id,
+        note: '',
+      })
+    }
+
+    const subtotal = await client.query<{ subtotal_tnd: string }>(
+      `SELECT SUM(requested.quantity * p.price_tnd)::numeric(21,3) AS subtotal_tnd
+       FROM unnest($2::uuid[], $3::int[]) AS requested(variant_id, quantity)
+       JOIN product_variants v ON v.id = requested.variant_id AND v.store_id = $1
+       JOIN products p ON p.id = v.product_id AND p.store_id = v.store_id`,
+      [request.user!.store_id, variantIds, input.lines.map((line) => line.quantity)],
+    )
+    const discount = input.discount_tnd.toFixed(3)
+    const sale = await client.query(
+      `INSERT INTO sales (store_id, customer_id, cashier_user_id, subtotal_tnd, discount_tnd, total_tnd)
+       SELECT $1, $2, $3, $4::numeric, $5::numeric, $4::numeric - $5::numeric
+       WHERE $5::numeric < $4::numeric
+       RETURNING id, invoice_number, status, subtotal_tnd, discount_tnd, total_tnd, created_at`,
+      [request.user!.store_id, input.customer_id ?? null, request.user!.id, subtotal.rows[0].subtotal_tnd, discount],
+    )
+    if (!sale.rowCount) {
+      throw new HttpError(400, 'Discount must be less than the sale subtotal.', 'invalid_discount')
+    }
+    const saleRecord = sale.rows[0]
+    for (const line of input.lines) {
+      const item = await client.query<{ id: string }>(
+        `INSERT INTO sale_items (store_id, sale_id, variant_id, quantity, unit_price_tnd, line_total_tnd)
+         SELECT $1, $2, v.id, $4::int, p.price_tnd, p.price_tnd * $4::int
+         FROM product_variants v
+         JOIN products p ON p.id = v.product_id AND p.store_id = v.store_id
+         WHERE v.id = $3 AND v.store_id = $1
+         RETURNING id`,
+        [request.user!.store_id, saleRecord.id, line.variant_id, line.quantity],
+      )
+      await client.query(
+        `INSERT INTO inventory_movements
+          (store_id, variant_id, type, quantity, note, created_by, sale_item_id)
+         VALUES ($1, $2, 'OUT', $3, $4, $5, $6)`,
+        [
+          request.user!.store_id,
+          line.variant_id,
+          line.quantity,
+          `Sale INV-${String(saleRecord.invoice_number).padStart(6, '0')}`,
+          request.user!.id,
+          item.rows[0].id,
+        ],
+      )
+    }
+    await client.query(
+      `INSERT INTO sale_payments (store_id, sale_id, method, amount_tnd, received_by)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [request.user!.store_id, saleRecord.id, input.payment_method, saleRecord.total_tnd, request.user!.id],
+    )
+    return saleRecord
+  })
+  response.status(201).json(created)
 })
 
 api.get('/dashboard', async (request: AuthenticatedRequest, response) => {
