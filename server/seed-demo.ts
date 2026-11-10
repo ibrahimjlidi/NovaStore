@@ -1,9 +1,15 @@
 import dotenv from 'dotenv'
+import bcrypt from 'bcryptjs'
 import { getPool, inTransaction } from './db.js'
 import { HttpError } from './errors.js'
 
 dotenv.config({ path: '.env.local' })
 dotenv.config()
+
+const demoAccount = {
+  email: 'demo@novastore.local',
+  password: 'NovaStoreDemo2026!',
+}
 
 const products = [
   { sku: 'DEMO-TS-001', name_ar: 'تيشيرت قطني أساسي', name_fr: 'T-shirt essentiel en coton', category: 'tshirt', price: 39.9, threshold: 10, stock: 24 },
@@ -62,6 +68,9 @@ const sampleMovements = [
 ] as const
 
 async function seedDemoData() {
+  if (process.env.NODE_ENV === 'production' || process.env.VERCEL) {
+    throw new HttpError(403, 'Demo data can only be seeded outside Vercel and production.', 'demo_seed_not_allowed')
+  }
   const storeEmail = process.env.BOOTSTRAP_ADMIN_EMAIL?.trim().toLowerCase()
   await inTransaction(async (client) => {
     const admin = await client.query<{ id: string; store_id: string }>(
@@ -72,6 +81,23 @@ async function seedDemoData() {
     )
     const user = admin.rows[0]
     if (!user) throw new HttpError(400, 'No administrator exists. Configure the bootstrap admin and run npm.cmd run db:migrate first.', 'admin_not_found')
+
+    const existingDemoAccount = await client.query<{ store_id: string }>(
+      'SELECT store_id FROM store_users WHERE lower(email) = $1',
+      [demoAccount.email],
+    )
+    if (existingDemoAccount.rows[0] && existingDemoAccount.rows[0].store_id !== user.store_id) {
+      throw new HttpError(409, 'The demo account email is already used by another store.', 'demo_account_conflict')
+    }
+    if (!existingDemoAccount.rowCount) {
+      const passwordHash = await bcrypt.hash(demoAccount.password, 12)
+      await client.query(
+        `INSERT INTO store_users (store_id, email, password_hash, role)
+         VALUES ($1, $2, $3, 'admin')`,
+        [user.store_id, demoAccount.email, passwordHash],
+      )
+      console.log(`Created local demo admin account: ${demoAccount.email}`)
+    }
 
     await client.query('SELECT pg_advisory_xact_lock(80461532)')
     const existing = await client.query<{ count: string }>(

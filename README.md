@@ -58,6 +58,8 @@ npm.cmd run db:seed-demo
 
 This creates 25 demo products, stock variants and movements, five suppliers, and five purchase orders. The seed is transactional and skips without changing data if the store already has any products. Do not use this sample data in production.
 
+The local demo seed also creates the `demo@novastore.local` administrator if it does not already exist. Use password `NovaStoreDemo2026!` to sign in. The login page displays these credentials only in the Vite development server; the seed command refuses to run on Vercel or with `NODE_ENV=production`. Use only a disposable local development database for demo data.
+
 ## Authentication and account links
 
 - Auth.js credentials sign-in uses a database email/password record, bcrypt password hashes, and an encrypted, 12-hour JWT cookie. Store membership and role are checked against PostgreSQL on each API request.

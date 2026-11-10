@@ -375,6 +375,8 @@ const copy = {
     authEmail: 'البريد الإلكتروني', authPassword: 'كلمة المرور', newPassword: 'كلمة مرور جديدة',
     confirmPassword: 'تأكيد كلمة المرور', forgotPassword: 'نسيت كلمة المرور؟', resetPassword: 'إعادة تعيين كلمة المرور',
     acceptInvite: 'قبول الدعوة', invitedEmail: 'البريد الإلكتروني المدعو', backToSignIn: 'العودة لتسجيل الدخول',
+    demoAccount: 'حساب تجريبي', demoAdmin: 'مدير تجريبي', useDemoAccount: 'استخدام الحساب التجريبي',
+    demoSeedHint: 'شغّل npm run db:seed-demo محلياً لإنشاء هذا الحساب والبيانات التجريبية.',
     authFailed: 'تعذر تسجيل الدخول. تحقق من البريد الإلكتروني وكلمة المرور.',
     passwordMismatch: 'كلمتا المرور غير متطابقتين.', passwordRequirement: 'استخدم 12 حرفاً على الأقل.',
     resetRequestHelp: 'إذا كان الحساب موجوداً، فستصل تعليمات إعادة التعيين إلى البريد المسجل.',
@@ -444,6 +446,8 @@ const copy = {
     authEmail: 'E-mail', authPassword: 'Mot de passe', newPassword: 'Nouveau mot de passe',
     confirmPassword: 'Confirmer le mot de passe', forgotPassword: 'Mot de passe oublié ?', resetPassword: 'Réinitialiser le mot de passe',
     acceptInvite: 'Accepter l’invitation', invitedEmail: 'E-mail invité', backToSignIn: 'Retour à la connexion',
+    demoAccount: 'Compte de démonstration', demoAdmin: 'Administrateur démo', useDemoAccount: 'Utiliser ce compte démo',
+    demoSeedHint: 'Exécutez npm run db:seed-demo en local pour créer ce compte et les données de démonstration.',
     authFailed: 'Connexion impossible. Vérifiez votre adresse e-mail et votre mot de passe.',
     passwordMismatch: 'Les mots de passe ne correspondent pas.', passwordRequirement: 'Utilisez au moins 12 caractères.',
     resetRequestHelp: 'Si le compte existe, les instructions seront envoyées à son adresse e-mail.',
@@ -1419,6 +1423,17 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
             <button className="button button-primary" disabled={authBusy}>{t('signIn')}</button>
             <button type="button" className="button button-quiet auth-link" onClick={() => changeAuthMode('forgot')}>{t('forgotPassword')}</button>
           </form>}
+          {import.meta.env.DEV && authMode === 'signin' && <aside className="demo-account">
+            <div className="demo-account-heading"><strong>{t('demoAccount')}</strong><span>{t('demoAdmin')}</span></div>
+            <p>{t('authEmail')}: demo@novastore.local</p>
+            <p>{t('authPassword')}: NovaStoreDemo2026!</p>
+            <small>{t('demoSeedHint')}</small>
+            <button type="button" className="button button-outline" onClick={() => {
+              setAuthEmail('demo@novastore.local')
+              setAuthPassword('NovaStoreDemo2026!')
+              setAuthError('')
+            }}>{t('useDemoAccount')}</button>
+          </aside>}
           {authMode === 'invite' && <form className="form-stack auth-fields" onSubmit={submitInvitationAcceptance}>
             <label>{t('invitedEmail')}<input autoComplete="email" type="email" required maxLength={254} value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} /></label>
             <label>{t('newPassword')}<input autoComplete="new-password" type="password" required minLength={12} value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} /></label>

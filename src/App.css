@@ -1718,6 +1718,48 @@
   font-size: 10px;
 }
 
+.demo-account {
+  display: grid;
+  gap: 7px;
+  margin-top: 20px;
+  padding: 13px;
+  color: #46616a;
+  background: #f1f8f9;
+  border: 1px solid #d5e9ec;
+  border-radius: 10px;
+  font-size: 11px;
+}
+
+.demo-account-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: #105b69;
+}
+
+.demo-account-heading span {
+  padding: 3px 7px;
+  background: #dff0f2;
+  border-radius: 6px;
+  font-size: 9px;
+}
+
+.demo-account p {
+  margin: 0;
+  font-family: 'DM Sans', 'Cairo', sans-serif;
+}
+
+.demo-account small {
+  color: #667780;
+  font-size: 10px;
+}
+
+.demo-account .button {
+  justify-self: start;
+  margin-top: 3px;
+}
+
 .auth-toast {
   position: static;
   margin-top: 12px;
