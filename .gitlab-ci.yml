@@ -2,7 +2,7 @@ stages:
   - start
   - test
   - test-finished
-  - docker
+  - deploy
   - finish
 
 variables:
@@ -29,7 +29,6 @@ start-pipeline:
       echo "Pipeline ID: $CI_PIPELINE_ID"
       echo "Branch: $CI_COMMIT_REF_NAME"
       echo "Commit: $CI_COMMIT_SHORT_SHA"
-      echo "Starting CI/CD process..."
 
 # ==========================================
 # STAGE 2: TEST
@@ -39,6 +38,8 @@ test:
   image: node:22-alpine
   script:
     - |
+      set -eu
+
       echo "Installing dependencies..."
       npm ci
 
@@ -67,45 +68,101 @@ test-finished:
       echo "Lint: SUCCESS"
       echo "Unit tests: SUCCESS"
       echo "Application build: SUCCESS"
-      echo "Preparing Docker build..."
+      echo "Preparing OVH deployment..."
 
 # ==========================================
-# STAGE 4: DOCKER BUILD AND PUSH
+# STAGE 4: DEPLOY DIRECTLY TO OVH VPS
 # ==========================================
-docker-build:
-  stage: docker
-  image: docker:27.5.1-cli
-
-  services:
-    - name: docker:27.5.1-dind
-      alias: docker
-      command: ["--tls=false"]
-
-  variables:
-    DOCKER_HOST: "tcp://docker:2375"
-    DOCKER_TLS_CERTDIR: ""
+deploy-vps:
+  stage: deploy
+  image: alpine:3.20
 
   before_script:
+    - apk add --no-cache openssh-client rsync
     - |
-      echo "Authenticating with GitLab Container Registry..."
-      echo "$CI_REGISTRY_PASSWORD" | docker login \
-        --username "$CI_REGISTRY_USER" \
-        --password-stdin "$CI_REGISTRY"
+      set -eu
+
+      echo "Checking deployment configuration..."
+
+      test -n "$VPS_HOST"
+      test -n "$VPS_USER"
+      test -n "$VPS_APP_DIR"
+
+      test -s "$VPS_SSH_PRIVATE_KEY"
+      test -s "$VPS_KNOWN_HOSTS"
+
+      chmod 600 "$VPS_SSH_PRIVATE_KEY"
+      chmod 600 "$VPS_KNOWN_HOSTS"
+
+      echo "SSH configuration is ready."
 
   script:
     - |
-      echo "Building NovaStore Docker image..."
+      set -eu
 
-      docker build --pull \
-        -t "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA" \
-        -t "$CI_REGISTRY_IMAGE:latest" .
+      SSH_OPTS="-i $VPS_SSH_PRIVATE_KEY -o UserKnownHostsFile=$VPS_KNOWN_HOSTS -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -o BatchMode=yes"
 
-      echo "Pushing Docker image..."
+      echo "======================================"
+      echo "       NOVASTORE VPS DEPLOYMENT"
+      echo "======================================"
 
-      docker push "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
-      docker push "$CI_REGISTRY_IMAGE:latest"
+      echo "Target: $VPS_USER@$VPS_HOST"
+      echo "Directory: $VPS_APP_DIR"
+      echo "Commit: $CI_COMMIT_SHORT_SHA"
 
-      echo "Docker image published successfully!"
+      echo "Creating remote deployment directory..."
+
+      ssh $SSH_OPTS "$VPS_USER@$VPS_HOST" \
+        "mkdir -p '$VPS_APP_DIR'"
+
+      echo "Transferring application source..."
+
+      rsync -az \
+        --exclude='.git/' \
+        --exclude='node_modules/' \
+        --exclude='dist/' \
+        --exclude='dist-server/' \
+        --exclude='.env' \
+        --exclude='.env.*' \
+        --exclude='*.log' \
+        --exclude='playwright-report/' \
+        --exclude='test-results/' \
+        -e "ssh $SSH_OPTS" \
+        ./ "$VPS_USER@$VPS_HOST:$VPS_APP_DIR/"
+
+      echo "Source transfer completed."
+
+      echo "Building and starting NovaStore on VPS..."
+
+      ssh $SSH_OPTS "$VPS_USER@$VPS_HOST" \
+        sh -s -- "$VPS_APP_DIR" <<'REMOTE'
+      set -eu
+
+      cd "$1"
+
+      echo "Building Docker image and starting container..."
+
+      if ! docker compose up -d --build --remove-orphans \
+        --wait --wait-timeout 180; then
+        echo "Deployment or health check failed."
+        docker compose logs --tail=100 || true
+        exit 1
+      fi
+
+      echo "Container status:"
+      docker compose ps
+
+      echo "NovaStore deployment completed successfully."
+      REMOTE
+
+      echo "======================================"
+      echo "       DEPLOYMENT SUCCESS"
+      echo "======================================"
+
+  resource_group: novastore-production
+
+  environment:
+    name: production
 
   rules:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
@@ -122,6 +179,6 @@ finish-pipeline:
       echo "       NOVASTORE CI/CD SUCCESS"
       echo "======================================"
       echo "All pipeline stages completed!"
-      echo "Docker image: $CI_REGISTRY_IMAGE:latest"
+      echo "Deployment target: OVH VPS"
+      echo "Application: http://152.228.137.85:3001"
       echo "Commit: $CI_COMMIT_SHORT_SHA"
-      echo "Ready for OVH deployment!"
