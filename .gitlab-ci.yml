@@ -87,12 +87,15 @@ deploy-vps:
       test -n "$VPS_HOST"
       test -n "$VPS_USER"
       test -n "$VPS_APP_DIR"
-
-      test -s "$VPS_SSH_PRIVATE_KEY"
+      test -n "$VPS_SSH_PRIVATE_KEY_B64"
       test -s "$VPS_KNOWN_HOSTS"
 
-      chmod 600 "$VPS_SSH_PRIVATE_KEY"
+      printf '%s' "$VPS_SSH_PRIVATE_KEY_B64" | base64 -d > /tmp/novastore_deploy_key
+
+      chmod 600 /tmp/novastore_deploy_key
       chmod 600 "$VPS_KNOWN_HOSTS"
+
+      ssh-keygen -y -P "" -f /tmp/novastore_deploy_key > /dev/null
 
       echo "SSH configuration is ready."
 
@@ -100,7 +103,7 @@ deploy-vps:
     - |
       set -eu
 
-      SSH_OPTS="-i $VPS_SSH_PRIVATE_KEY -o UserKnownHostsFile=$VPS_KNOWN_HOSTS -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -o BatchMode=yes"
+      SSH_OPTS="-i /tmp/novastore_deploy_key -o UserKnownHostsFile=$VPS_KNOWN_HOSTS -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -o BatchMode=yes"
 
       echo "======================================"
       echo "       NOVASTORE VPS DEPLOYMENT"
