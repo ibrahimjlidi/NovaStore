@@ -546,6 +546,10 @@ function EmptyState({ children }: { children: ReactNode }) {
   return <div className="empty-state"><Package size={22} /><p>{children}</p></div>
 }
 
+function BrandMark() {
+  return <span className="brand-mark"><img src="/novastore-mark.svg" alt="" /></span>
+}
+
 export default function App() {
   const [language, setLanguage] = useState<Language>('ar')
   const [darkMode, setDarkMode] = useState(false)
@@ -1400,14 +1404,14 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
         : t('resetPassword')
 
   if (!isLoaded) {
-    return <main className="loading-screen" dir={direction}><div className="loading-brand"><span className="brand-mark"><Shirt size={21} /></span><strong>NovaStore</strong><p>{t('loading')}</p></div></main>
+    return <main className="loading-screen" dir={direction}><div className="loading-brand"><BrandMark /><strong>NovaStore</strong><p>{t('loading')}</p></div></main>
   }
 
   if (!isSignedIn) {
     return (
       <main className="auth-screen" dir={direction}>
         <section className="auth-copy">
-          <span className="brand-mark"><Shirt size={22} /></span>
+          <BrandMark />
           <p className="eyebrow">NOVASTORE · STOCK INTELLIGENCE</p>
           <h1>{language === 'ar' ? 'إدارة مخزونك، ببساطة.' : 'Votre stock, en toute clarté.'}</h1>
           <p>{t('signInHelp')}</p>
@@ -1472,7 +1476,7 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
   }
 
   if (loading || !profile || !dashboard) {
-    return <main className="loading-screen" dir={direction}><div className="loading-brand"><span className="brand-mark"><Shirt size={21} /></span><strong>NovaStore</strong><p>{t('loading')}</p></div></main>
+    return <main className="loading-screen" dir={direction}><div className="loading-brand"><BrandMark /><strong>NovaStore</strong><p>{t('loading')}</p></div></main>
   }
 
   const formattedMoney = (value: number | string) => money(value, language)
@@ -1511,7 +1515,7 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
     <div className={`app-shell ${darkMode ? 'theme-dark' : ''} ${selectedInvoice ? 'print-invoice-active' : ''}`} dir={direction}>
       {mobileNav && <button className="mobile-scrim" aria-label={t('close')} onClick={() => setMobileNav(false)} />}
       <aside className={`sidebar ${mobileNav ? 'sidebar-open' : ''}`}>
-        <div className="brand-lockup"><span className="brand-mark"><Shirt size={21} /></span><span className="brand-copy"><strong>NOVA<span>STORE</span></strong><small>STOCK MANAGEMENT</small></span><button className="icon-button mobile-close" onClick={() => setMobileNav(false)} aria-label={t('close')}><X size={18} /></button></div>
+        <div className="brand-lockup"><BrandMark /><span className="brand-copy"><strong>NOVA<span>STORE</span></strong><small>GESTION DE STOCK</small></span><button className="icon-button mobile-close" onClick={() => setMobileNav(false)} aria-label={t('close')}><X size={18} /></button></div>
         <div className="store-card"><span className="store-avatar">{profile.store.name.slice(0, 1)}</span><span><strong>{profile.store.name}</strong><small>{profile.store.city}, Tunisia</small></span><ChevronDown size={15} /></div>
         <p className="nav-caption">{t('inventory')}</p>
         <nav className="side-nav">

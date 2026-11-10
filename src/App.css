@@ -90,6 +90,11 @@
   box-shadow: 0 5px 15px color-mix(in srgb, var(--green) 22%, transparent);
 }
 
+.brand-mark img {
+  width: 23px;
+  height: 23px;
+}
+
 .brand-copy {
   display: flex;
   min-width: 0;
