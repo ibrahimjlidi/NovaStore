@@ -1,3 +1,4 @@
+import { resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import express, { type NextFunction, type Request, type Response } from 'express'
 import helmet from 'helmet'
@@ -963,6 +964,32 @@ api.post('/import/commit', admin, async (request: AuthenticatedRequest, response
 
 app.use('/api', api)
 app.use('/api', (_request, _response, next) => next(new HttpError(404, 'API route not found.', 'not_found')))
+// Serve the production React application.
+if (process.env.NODE_ENV === 'production') {
+  const frontendDirectory = resolve(process.cwd(), 'dist')
+
+  app.use(express.static(frontendDirectory, {
+    index: false,
+  }))
+
+  // Support React Router client-side navigation.
+  app.use((request, response, next) => {
+    if (
+      request.method !== 'GET' ||
+      request.path === '/api' ||
+      request.path.startsWith('/api/')
+    ) {
+      return next()
+    }
+
+    response.sendFile(
+      resolve(frontendDirectory, 'index.html'),
+      (error) => {
+        if (error) next(error)
+      },
+    )
+  })
+}
 app.use((error: unknown, request: Request, response: Response, _next: NextFunction) => {
   const requestId = randomUUID()
   if (error instanceof HttpError) {

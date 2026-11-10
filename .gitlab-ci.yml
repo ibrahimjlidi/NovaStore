@@ -1,0 +1,101 @@
+
+stages:
+  - start
+  - test
+  - test-finished
+  - docker
+  - finish
+
+variables:
+  npm_config_cache: "$CI_PROJECT_DIR/.npm"
+
+cache:
+  key:
+    files:
+      - package-lock.json
+  paths:
+    - .npm/
+
+# -----------------------------------------------
+# Stage 1: Start pipeline
+# -----------------------------------------------
+start-pipeline:
+  stage: start
+  image: alpine:latest
+  script:
+    - echo "======================================"
+    - echo "       STARTING NOVASTORE CI/CD       "
+    - echo "======================================"
+    - echo "Pipeline ID: $CI_PIPELINE_ID"
+    - echo "Branch: $CI_COMMIT_REF_NAME"
+    - echo "Commit: $CI_COMMIT_SHORT_SHA"
+    - echo "Starting CI/CD process..."
+
+# -----------------------------------------------
+# Stage 2: Test application
+# -----------------------------------------------
+test:
+  stage: test
+  image: node:22-alpine
+  script:
+    - echo "Installing dependencies..."
+    - npm ci
+    - echo "Running lint..."
+    - npm run lint
+    - echo "Running unit tests..."
+    - npm test
+    - echo "Building frontend..."
+    - npm run build
+
+# -----------------------------------------------
+# Stage 3: Test completed
+# -----------------------------------------------
+test-finished:
+  stage: test-finished
+  image: alpine:latest
+  script:
+    - echo "======================================"
+    - echo "       TEST STAGE COMPLETED           "
+    - echo "======================================"
+    - echo "Lint: SUCCESS"
+    - echo "Unit tests: SUCCESS"
+    - echo "Application build: SUCCESS"
+    - echo "Preparing Docker build..."
+
+# -----------------------------------------------
+# Stage 4: Build and push Docker image
+# -----------------------------------------------
+docker-build:
+  stage: docker
+  image: docker:27.5.1-cli
+  services:
+    - name: docker:27.5.1-dind
+      alias: docker
+      command: ["--tls=false"]
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
+  before_script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login --username "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+  script:
+    - echo "Building NovaStore Docker image..."
+    - docker build --pull -t "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA" -t "$CI_REGISTRY_IMAGE:latest" .
+    - echo "Pushing Docker image..."
+    - docker push "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
+    - docker push "$CI_REGISTRY_IMAGE:latest"
+    - echo "Docker image published successfully!"
+
+# -----------------------------------------------
+# Stage 5: Final pipeline message
+# -----------------------------------------------
+finish-pipeline:
+  stage: finish
+  image: alpine:latest
+  script:
+    - echo "======================================"
+    - echo "       NOVASTORE CI/CD SUCCESS        "
+    - echo "======================================"
+    - echo "All pipeline stages completed!"
+    - echo "Docker image: $CI_REGISTRY_IMAGE:latest"
+    - echo "Commit: $CI_COMMIT_SHORT_SHA"
+    - echo "Ready for OVH deployment!"
