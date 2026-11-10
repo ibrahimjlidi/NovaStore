@@ -56,9 +56,11 @@ For a fresh local store, optionally load the fictional Tunisian clothing-store d
 npm.cmd run db:seed-demo
 ```
 
-This creates 25 demo products, stock variants and movements, five suppliers, and five purchase orders. The seed is transactional and skips without changing data if the store already has any products. Do not use this sample data in production.
+This creates 25 demo products, stock variants and movements, five suppliers, and five purchase orders. The seed is transactional and skips product seeding without changing data if the store already has any products. Use this sample data only in a local or isolated demo database, never in the production business database.
 
-The local demo seed also creates the `demo@novastore.local` administrator if it does not already exist. Use password `NovaStoreDemo2026!` to sign in. The login page displays these credentials only in the Vite development server; the seed command refuses to run on Vercel or with `NODE_ENV=production`. Use only a disposable local development database for demo data.
+The demo seed creates or refreshes a read-only `viewer` account: `demo@novastore.local` / `NovaStoreDemo2026!`. In local development, the login page displays these credentials automatically. To show them on a deployed login page, set `VITE_PUBLIC_DEMO_EMAIL` and `VITE_PUBLIC_DEMO_PASSWORD` for that deployment; both values are intentionally public in the browser bundle.
+
+Only enable the public demo login on a separate demo deployment connected to its own isolated database. Never point it at production business data. Configure the demo deployment's `DATABASE_URL`, run migrations and `npm.cmd run db:seed-demo` locally against that dedicated database, then set the two `VITE_PUBLIC_DEMO_*` values on the demo deployment to match the seeded account. The seed command refuses to run when `VERCEL` is set or `NODE_ENV=production`. The viewer role can read the demo store's dashboard, products, stock alerts, and reports, but cannot modify data or manage users.
 
 ## Authentication and account links
 
@@ -85,12 +87,14 @@ The local demo seed also creates the `demo@novastore.local` administrator if it 
    | `APP_URL` | Deployed origin, e.g. `https://your-store.vercel.app` |
    | `RESEND_API_KEY` | Optional Resend API key for account emails |
    | `EMAIL_FROM` | Optional verified sender address for account emails |
+   | `VITE_PUBLIC_DEMO_EMAIL` | Optional, public demo login; configure only for an isolated demo deployment |
+   | `VITE_PUBLIC_DEMO_PASSWORD` | Optional, public demo password; configure only for an isolated demo deployment |
 
 3. Vercel runs `npm run db:migrate` before `npm run build` for each deployment. A migration failure stops the build, preventing deployment of code against an incompatible schema. Set both database URLs for every Vercel environment you deploy; Preview must use a separate preview database, never the production URL. Migrations are transactional and skip versions already recorded in `schema_migrations`.
 
 4. Deploy the `production` branch. Vercel serves `/api/*` through the Express function and rewrites browser routes to the React app. For local setup, `npm.cmd run db:migrate` still applies pending migrations before starting the development servers.
 
-Keep database and authentication secrets in encrypted environment settings, not Git or `VITE_` variables. Do not use a personal development database for production.
+Keep database, authentication, and email secrets in encrypted environment settings, not Git or `VITE_` variables. `VITE_PUBLIC_DEMO_EMAIL` and `VITE_PUBLIC_DEMO_PASSWORD` are intentionally public exceptions; configure them only on an isolated demo deployment. Do not use a personal development database for production.
 
 ## Workflows
 

@@ -82,21 +82,29 @@ async function seedDemoData() {
     const user = admin.rows[0]
     if (!user) throw new HttpError(400, 'No administrator exists. Configure the bootstrap admin and run npm.cmd run db:migrate first.', 'admin_not_found')
 
-    const existingDemoAccount = await client.query<{ store_id: string }>(
-      'SELECT store_id FROM store_users WHERE lower(email) = $1',
+    const existingDemoAccount = await client.query<{ id: string; store_id: string }>(
+      'SELECT id, store_id FROM store_users WHERE lower(email) = $1',
       [demoAccount.email],
     )
     if (existingDemoAccount.rows[0] && existingDemoAccount.rows[0].store_id !== user.store_id) {
       throw new HttpError(409, 'The demo account email is already used by another store.', 'demo_account_conflict')
     }
-    if (!existingDemoAccount.rowCount) {
-      const passwordHash = await bcrypt.hash(demoAccount.password, 12)
+    const passwordHash = await bcrypt.hash(demoAccount.password, 12)
+    if (existingDemoAccount.rows[0]) {
+      await client.query(
+        `UPDATE store_users
+         SET password_hash = $2, role = 'viewer', disabled_at = NULL, auth_version = auth_version + 1
+         WHERE id = $1`,
+        [existingDemoAccount.rows[0].id, passwordHash],
+      )
+      console.log(`Refreshed demo viewer account: ${demoAccount.email}`)
+    } else {
       await client.query(
         `INSERT INTO store_users (store_id, email, password_hash, role)
-         VALUES ($1, $2, $3, 'admin')`,
+         VALUES ($1, $2, $3, 'viewer')`,
         [user.store_id, demoAccount.email, passwordHash],
       )
-      console.log(`Created local demo admin account: ${demoAccount.email}`)
+      console.log(`Created demo viewer account: ${demoAccount.email}`)
     }
 
     await client.query('SELECT pg_advisory_xact_lock(80461532)')
