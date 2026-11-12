@@ -17,6 +17,7 @@ import {
   type AuthenticatedRequest,
 } from './auth.js'
 import { getPool, inTransaction } from './db.js'
+import { sendTelegramAlert } from './telegram.js'; // Add .js extension if your tsconfig uses NodeNext/ESM
 import { HttpError } from './errors.js'
 import { previewProductCsv } from './import.js'
 import { applyStockMovement } from './inventory.js'
@@ -110,6 +111,36 @@ api.post('/public/password-reset/request', publicAuthLimit, async (request, resp
   }
   response.status(202).json({ message: 'If the account exists, password reset instructions will be sent.' })
 })
+
+
+
+app.post('/api/track-visit', async (req, res) => {
+  const forwarded = req.headers['x-forwarded-for'];
+  const ip = typeof forwarded === 'string' 
+    ? forwarded.split(',')[0].trim() 
+    : req.socket.remoteAddress || 'Unknown IP';
+    
+  const userAgent = req.headers['user-agent'] || 'Unknown Device';
+  const { page = '/', referrer = 'Direct' } = req.body || {};
+
+  const timeTunis = new Date().toLocaleString('en-GB', {
+    timeZone: 'Africa/Tunis',
+    dateStyle: 'short',
+    timeStyle: 'medium',
+  });
+
+  const text = [
+    `🚀 *New Visitor on NovaStore*`,
+    `📄 *Page:* \`${page}\``,
+    `🔗 *Referrer:* ${referrer}`,
+    `🌐 *IP:* \`${ip}\``,
+    `📱 *Device:* ${userAgent.slice(0, 70)}...`,
+    `🕒 *Time (TN):* ${timeTunis}`,
+  ].join('\n');
+
+  await sendTelegramAlert(text);
+  res.status(200).json({ ok: true });
+});
 
 api.post('/public/password-reset/complete', publicAuthLimit, async (request, response) => {
   const input = parseInput(passwordResetCompleteInput, request.body)

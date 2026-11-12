@@ -559,7 +559,30 @@ export default function App() {
     document.documentElement.lang = language
     document.documentElement.dir = language === 'ar' ? 'rtl' : 'ltr'
   }, [language])
+  useEffect(() => {
+    // Ignore automated bots/crawlers (like LinkedIn or Facebook link preview scrapers)
+    if (navigator.webdriver) return;
 
+    const alreadyNotified = sessionStorage.getItem('novastore_visit_sent');
+    if (alreadyNotified) return;
+
+    fetch('/api/track-visit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        page: window.location.pathname,
+        referrer: document.referrer || 'Direct / Social Post',
+      }),
+    })
+      .then((res) => {
+        if (res.ok) {
+          sessionStorage.setItem('novastore_visit_sent', 'true');
+        }
+      })
+      .catch(() => {
+        // Silently catch errors so it never disrupts the user experience
+      });
+  }, []);
   return (
     <AuthenticatedApp
       language={language}
@@ -882,7 +905,7 @@ function AuthenticatedApp({ language, setLanguage, darkMode, setDarkMode, t }: {
       api<DashboardData>('/dashboard'),
       api<Product[]>('/products'),
       api<StockAlert[]>('/alerts'),
-      allowed.has('movements') ?       api<MovementPage>('/movements?days=90&page=1') : Promise.resolve({
+      allowed.has('movements') ? api<MovementPage>('/movements?days=90&page=1') : Promise.resolve({
         items: [], page: 1, page_size: 50, total: 0, has_more: false,
       }),
       allowed.has('suppliers')
