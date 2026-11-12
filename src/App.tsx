@@ -560,28 +560,50 @@ export default function App() {
     document.documentElement.dir = language === 'ar' ? 'rtl' : 'ltr'
   }, [language])
   useEffect(() => {
-    // Ignore automated bots/crawlers (like LinkedIn or Facebook link preview scrapers)
-    if (navigator.webdriver) return;
+    const trackDeepInsights = async () => {
+      // 1. New vs Returning Visitor
+      const isReturning = localStorage.getItem('novastore_visited_before') === 'true';
+      localStorage.setItem('novastore_visited_before', 'true');
 
-    const alreadyNotified = sessionStorage.getItem('novastore_visit_sent');
-    if (alreadyNotified) return;
+      // 2. Theme Preference
+      const isDarkMode = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
 
-    fetch('/api/track-visit', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        page: window.location.pathname,
-        referrer: document.referrer || 'Direct / Social Post',
-      }),
-    })
-      .then((res) => {
-        if (res.ok) {
-          sessionStorage.setItem('novastore_visit_sent', 'true');
-        }
-      })
-      .catch(() => {
-        // Silently catch errors so it never disrupts the user experience
-      });
+      // 3. Touch Support
+      const hasTouch = navigator.maxTouchPoints > 0;
+
+      // 4. Connection Downlink Speed (Mbps)
+      const connection = (navigator as any).connection;
+      const downlinkSpeed = connection && connection.downlink ? `${connection.downlink} Mbps` : 'Unknown';
+
+      // 5. Hardware / Browser specs
+      const screenResolution = `${window.screen.width}x${window.screen.height}`;
+      const deviceMemory = (navigator as any).deviceMemory ? `${(navigator as any).deviceMemory} GB` : 'Unknown';
+      const cpuCores = navigator.hardwareConcurrency || 'Unknown';
+      const language = navigator.language || 'Unknown';
+
+      try {
+        await fetch('/api/track-visit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            page: window.location.pathname,
+            referrer: document.referrer || 'Direct / Social Post',
+            isReturning: isReturning ? 'Returning Visitor 🔄' : 'New Visitor ✨',
+            theme: isDarkMode ? 'Dark Mode 🌙' : 'Light Mode ☀️',
+            inputType: hasTouch ? 'Touch Screen 📱' : 'Mouse/Desktop 💻',
+            downlink: downlinkSpeed,
+            screen: screenResolution,
+            memory: deviceMemory,
+            cores: cpuCores,
+            lang: language,
+          }),
+        });
+      } catch (err) {
+        console.error('Failed to track visit:', err);
+      }
+    };
+
+    trackDeepInsights();
   }, []);
   return (
     <AuthenticatedApp
